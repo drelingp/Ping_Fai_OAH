@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#07080c" />
+    <title>Night Ward — Ping Fai Care Home</title>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+
+    <div id="hud">
+      <div id="clockbox">
+        <div id="clock">07:00</div>
+        <div id="shift"></div>
+        <div id="staff"></div>
+        <div id="rep"></div>
+      </div>
+      <div id="objective"></div>
+      <div id="banners"></div>
+      <canvas id="minimap" title="Tap to expand map"></canvas>
+
+      <div id="actions">
+        <button id="btn-pause" class="small" aria-label="Pause">II</button>
+        <button id="btn-case" class="small" aria-label="Case file">Case</button>
+        <button id="btn-interact" class="disabled" aria-label="Interact"><span>E</span></button>
+        <div id="interact-label"></div>
+      </div>
+      <div id="keys">WASD move · drag to look · E interact (hold for care) · M map · C case · Esc pause</div>
+
+      <div id="hold"><div id="hold-label"></div><div class="track"><div id="hold-bar"></div></div></div>
+      <div id="toast"></div>
+      <div id="stick"><div id="knob"></div></div>
+    </div>
+
+    <div id="bigmap">
+      <div class="bigmap-inner">
+        <canvas id="bigmap-canvas"></canvas>
+        <div id="bigmap-list"></div>
+      </div>
+      <div class="legend"><i class="lg-y"></i> call bell <i class="lg-r"></i> urgent <i class="lg-d"></i> resident (last known, fades with age) <i class="lg-n"></i> staff in sight</div>
+      <button id="bigmap-close">Close map</button>
+    </div>
+
+    <div id="panel"><button id="panel-close" aria-label="Close">✕</button><div id="panel-body"></div></div>
+
+    <div id="title">
+      <div class="title-card">
+        <h1>Night Ward</h1>
+        <h2>Halloween at Ping Fai Care Home</h2>
+        <p>You are the <b>Shift In-Charge</b> on a single floor of 30–42 residents. Most of your nurses cut corners — some do worse. Do your rounds, answer call bells, manage a short-handed team, and find out what the charts aren't telling you.</p>
+        <p class="warn">Content note: depicts elder neglect, physical restraint and death in a care setting. No supernatural events — every horror here has a human cause.</p>
+        <button id="start">Begin AM shift — 07:00</button>
+        <p class="ctrl">Desktop: WASD + mouse drag · Mobile: left thumb to move, drag right side to look</p>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
