@@ -53,18 +53,60 @@ export function createUI() {
   };
   ui.setObjective = (t) => { if (objective.textContent !== t) objective.textContent = t; };
 
+  // Boxes are kept and patched in place so nothing re-animates every game minute.
+  // A box blinks a few times only when it first appears or turns urgent.
+  const compactQuery = matchMedia('(max-width: 700px)');
+  const bannerEls = new Map(); // bell id -> { el, urgent }
+  let moreEl = null;
+  const blink = (el) => {
+    el.classList.remove('blink');
+    void el.offsetWidth; // restart the animation
+    el.classList.add('blink');
+  };
+  banners.addEventListener('animationend', (e) => { if (e.animationName === 'bell-blink') e.target.classList.remove('blink'); });
+  banners.addEventListener('click', (e) => {
+    const el = e.target.closest('.banner');
+    if (el) ui.onBannerTap?.(Number(el.dataset.id));
+  });
   ui.renderBanners = (bells, now) => {
-    const sorted = [...bells].sort((a, b) => (b.urgent - a.urgent) || (a.start - b.start)).slice(0, 3);
-    const key = sorted.map((b) => `${b.id}:${b.urgent}:${Math.floor((now - b.start) / 1)}:${b.nurse ? 1 : 0}`).join('|') + bells.length;
-    if (banners.dataset.key === key) return;
-    banners.dataset.key = key;
-    banners.innerHTML = sorted.map((b) => `
-      <button class="banner ${b.urgent ? 'urgent' : ''}" data-id="${b.id}">
-        <span class="b-tag">${b.urgent ? 'URGENT' : 'Call bell'}</span>
-        <span class="b-main">${esc(b.res.name)} · ${esc(b.res.bed?.id ? 'Bed ' + b.res.bed.id : '')}</span>
-        <span class="b-sub">${esc(b.need)} · ${Math.floor(now - b.start)} min${b.nurse ? ' · staff going' : ''}</span>
-      </button>`).join('') + (bells.length > 3 ? `<div class="banner-more">+${bells.length - 3} more call bells</div>` : '');
-    banners.querySelectorAll('.banner').forEach((el) => el.addEventListener('click', () => ui.onBannerTap?.(Number(el.dataset.id))));
+    const limit = compactQuery.matches ? 2 : 3;
+    const sorted = [...bells].sort((a, b) => (b.urgent - a.urgent) || (a.start - b.start)).slice(0, limit);
+    const keep = new Set(sorted.map((b) => b.id));
+    for (const [id, rec] of bannerEls) if (!keep.has(id)) { rec.el.remove(); bannerEls.delete(id); }
+    sorted.forEach((b, i) => {
+      let rec = bannerEls.get(b.id);
+      const fresh = !rec;
+      if (fresh) {
+        const el = document.createElement('button');
+        el.className = 'banner';
+        el.dataset.id = b.id;
+        el.innerHTML = '<span class="b-tag"></span><span class="b-main"></span><span class="b-sub"></span><span class="b-age"></span>';
+        rec = { el, urgent: null, main: '', sub: '', age: '' };
+        bannerEls.set(b.id, rec);
+      }
+      const { el } = rec;
+      if (banners.children[i] !== el) banners.insertBefore(el, banners.children[i] ?? null);
+      const mins = Math.floor(now - b.start);
+      const main = `${b.res.name}${b.res.bed?.id ? ' · Bed ' + b.res.bed.id : ''}`;
+      const sub = `${b.need} · ${mins} min${b.nurse ? ' · staff going' : ''}`;
+      const age = `${mins}m${b.nurse ? ' · staff' : ''}`;
+      if (rec.urgent !== b.urgent) {
+        el.classList.toggle('urgent', b.urgent);
+        el.children[0].textContent = b.urgent ? 'URGENT' : 'Call bell';
+        if (fresh || b.urgent) blink(el);
+        rec.urgent = b.urgent;
+      }
+      if (rec.main !== main) el.children[1].textContent = rec.main = main;
+      if (rec.sub !== sub) el.children[2].textContent = rec.sub = sub;
+      if (rec.age !== age) el.children[3].textContent = rec.age = age;
+    });
+    const extra = bells.length - sorted.length;
+    if (extra > 0) {
+      if (!moreEl) { moreEl = document.createElement('div'); moreEl.className = 'banner-more'; }
+      const t = `+${extra} more call bell${extra > 1 ? 's' : ''}`;
+      if (moreEl.textContent !== t) moreEl.textContent = t;
+      if (banners.lastElementChild !== moreEl) banners.appendChild(moreEl);
+    } else moreEl?.remove();
   };
 
   ui.setInteract = (label) => {

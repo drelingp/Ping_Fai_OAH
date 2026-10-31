@@ -12,6 +12,7 @@ import { createInput } from './input.js';
 import { makePlayer } from './people.js';
 import { createGame } from './game.js';
 import { loadAssets, updateCharacters } from './assets.js';
+import { DIFFICULTY, DEFAULT_DIFFICULTY } from './data.js';
 
 // ---------- quality tiers ----------
 // high: soft shadows, ambient occlusion, bloom, MSAA · medium: shadows + bloom · low: no post-processing.
@@ -268,10 +269,27 @@ function frame(now) {
 }
 
 env.setShift('AM');
+
+// ---------- difficulty ----------
+const dParam = new URLSearchParams(location.search).get('d');
+const savedDiff = localStorage.getItem('nw-difficulty');
+const validDiff = (d) => d != null && Object.hasOwn(DIFFICULTY, d);
+let difficulty = validDiff(dParam) ? dParam : validDiff(savedDiff) ? savedDiff : DEFAULT_DIFFICULTY;
+const diffBtns = [...document.querySelectorAll('.difficulty .diff')];
+const setDifficulty = (d, save) => {
+  difficulty = d;
+  for (const b of diffBtns) b.setAttribute('aria-checked', String(b.dataset.d === d));
+  document.getElementById('diff-note').textContent = `A new call bell about every ${DIFFICULTY[d].bellEvery} min`;
+  if (save) localStorage.setItem('nw-difficulty', d);
+};
+for (const b of diffBtns) b.addEventListener('click', () => setDifficulty(b.dataset.d, true));
+setDifficulty(difficulty, false);
+
 startBtn.disabled = false;
 startBtn.textContent = startLabel;
 startBtn.addEventListener('click', () => {
   document.getElementById('title').classList.add('hide');
+  game.state.difficulty = difficulty;
   game.start();
 });
 requestAnimationFrame(frame);
