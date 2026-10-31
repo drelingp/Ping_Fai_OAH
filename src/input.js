@@ -26,33 +26,65 @@ export function createInput(canvas, stickEl, knobEl) {
 
   // Mouse drag / touch drag on the canvas rotates the camera
   const drags = new Map();
-  let stickId = null, stickOrigin = null;
+  let stickId = null;
   const STICK_R = 56;
 
+  // Fixed joystick (bottom-left), shown on touch devices or narrow screens.
+  const showStick = () => matchMedia('(pointer: coarse)').matches || innerWidth < 900;
+  const syncStick = () => {
+    state.stickVisible = showStick();
+    document.body.classList.toggle('has-stick', state.stickVisible);
+  };
+  syncStick();
+  addEventListener('resize', syncStick);
+
+  const stickCenter = () => {
+    const r = stickEl.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  };
+  const moveStick = (e) => {
+    const c = stickCenter();
+    let dx = e.clientX - c.x, dy = e.clientY - c.y;
+    const d = Math.hypot(dx, dy);
+    if (d > STICK_R) { dx *= STICK_R / d; dy *= STICK_R / d; }
+    knobEl.style.transform = `translate(${dx}px,${dy}px)`;
+    state.stickX = dx / STICK_R;
+    state.stickY = dy / STICK_R;
+  };
+  const releaseStick = () => {
+    stickId = null;
+    state.stickX = state.stickY = 0;
+    knobEl.style.transform = 'translate(0px,0px)';
+    stickEl.classList.remove('active');
+  };
+  stickEl.addEventListener('pointerdown', (e) => {
+    if (stickId !== null) return;
+    e.preventDefault();
+    stickId = e.pointerId;
+    stickEl.classList.add('active');
+    stickEl.setPointerCapture(e.pointerId);
+    moveStick(e);
+  });
+  stickEl.addEventListener('pointermove', (e) => { if (e.pointerId === stickId) moveStick(e); });
+  const stickEnd = (e) => { if (e.pointerId === stickId) releaseStick(); };
+  stickEl.addEventListener('pointerup', stickEnd);
+  stickEl.addEventListener('pointercancel', stickEnd);
+  stickEl.addEventListener('lostpointercapture', stickEnd);
+
+  // Touches that start on the lower-left canvas area also drive the stick (forgiving thumb zone).
   canvas.addEventListener('pointerdown', (e) => {
-    const leftZone = e.pointerType === 'touch' && e.clientX < innerWidth * 0.45 && e.clientY > innerHeight * 0.35;
-    if (leftZone && stickId === null) {
+    const thumbZone = state.stickVisible && e.pointerType === 'touch' && e.clientX < innerWidth * 0.4 && e.clientY > innerHeight * 0.55;
+    if (thumbZone && stickId === null) {
       stickId = e.pointerId;
-      stickOrigin = { x: e.clientX, y: e.clientY };
-      stickEl.style.left = e.clientX - 70 + 'px';
-      stickEl.style.top = e.clientY - 70 + 'px';
       stickEl.classList.add('active');
-      knobEl.style.transform = 'translate(0px,0px)';
+      moveStick(e);
     } else {
       drags.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
     canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener('pointermove', (e) => {
-    if (e.pointerId === stickId) {
-      let dx = e.clientX - stickOrigin.x, dy = e.clientY - stickOrigin.y;
-      const d = Math.hypot(dx, dy);
-      if (d > STICK_R) { dx *= STICK_R / d; dy *= STICK_R / d; }
-      knobEl.style.transform = `translate(${dx}px,${dy}px)`;
-      state.stickX = dx / STICK_R;
-      state.stickY = dy / STICK_R;
-      return;
-    }
+    if (e.pointerId === stickId) { moveStick(e); return; }
     const p = drags.get(e.pointerId);
     if (!p) return;
     state.yawDelta -= (e.clientX - p.x) * 0.006;
@@ -60,15 +92,17 @@ export function createInput(canvas, stickEl, knobEl) {
     p.x = e.clientX; p.y = e.clientY;
   });
   const end = (e) => {
-    if (e.pointerId === stickId) {
-      stickId = null;
-      state.stickX = state.stickY = 0;
-      stickEl.classList.remove('active');
-    }
+    if (e.pointerId === stickId) releaseStick();
     drags.delete(e.pointerId);
   };
   canvas.addEventListener('pointerup', end);
   canvas.addEventListener('pointercancel', end);
+  canvas.addEventListener('lostpointercapture', end);
+  addEventListener('blur', () => { releaseStick(); drags.clear(); state.onInteractUp?.(); });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) return;
+    keys.clear(); releaseStick(); drags.clear(); state.onInteractUp?.();
+  });
   canvas.addEventListener('wheel', (e) => { state.zoomDelta += Math.sign(e.deltaY) * 0.8; e.preventDefault(); }, { passive: false });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 

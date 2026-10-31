@@ -23,6 +23,7 @@ export function createUI() {
     onBannerTap: null,
     onCaseFile: null,
     onPause: null,
+    onResident: null,
   };
   const clock = $('#clock'), shiftEl = $('#shift'), staffEl = $('#staff'), repEl = $('#rep');
   const objective = $('#objective'), banners = $('#banners');
@@ -38,6 +39,8 @@ export function createUI() {
   interact.addEventListener('pointerleave', () => ui.onInteractUp?.());
   $('#btn-case').addEventListener('click', () => ui.onCaseFile?.());
   $('#btn-pause').addEventListener('click', () => ui.onPause?.());
+  $('#btn-resident').addEventListener('click', () => ui.onResident?.());
+  ui.setResidentAvailable = (visible) => { $('#btn-resident').hidden = !visible; };
   mini.addEventListener('click', () => ui.toggleMap());
   $('#bigmap-close').addEventListener('click', () => ui.toggleMap(false));
   $('#panel-close').addEventListener('click', () => ui.closePanel());

@@ -6,7 +6,7 @@ export function createCase1(ctx) {
   const { s, game, ui, map, scene, esc, fmtTime, clamp, dist, spawnBell, makeRestraintProps, makeUrineBag } = ctx;
   const c = {
     stage: 'handover', evidence: {}, care: { released: false, bag: false, washed: false },
-    chan: null, lee: null, props: null, bag: null, leeBellDone: false, result: null, decidedKey: null, chanDied: false,
+    chan: null, lee: null, props: null, bag: null, leeBellDone: false, result: null, decidedKey: null, chanDied: false, conductPenalty: 0,
   };
   const at = (st) => ORDER.indexOf(c.stage) >= ORDER.indexOf(st);
   const careCount = () => Number(c.care.released) + Number(c.care.bag) + Number(c.care.washed);
@@ -367,7 +367,8 @@ export function createCase1(ctx) {
     }
     if (!careDone() && c.chan.alive) { acc -= 15; out.push('You filed paperwork while Mr. Chan still lay in a wet bed.'); }
     if (c.chanDied) { acc -= 20; out.push('Mr. Chan did not survive the morning. The investigation will follow the home for months.'); }
-    acc = clamp(acc, 0, 100);
+    if (c.conductPenalty) out.push(`Your own misconduct undermined the investigation (accuracy −${c.conductPenalty}).`);
+    acc = clamp(acc - c.conductPenalty, 0, 100);
     c.result = { option, acc };
     c.decidedKey = shiftKey();
     c.stage = 'decided';
@@ -436,5 +437,13 @@ export function createCase1(ctx) {
     }
   }
 
-  return { residents, handover, minute, onDeath, emergency, residentAction, nurseTalk, records, office, caseFile, objective, shiftScore, frame };
+  function onPlayerHarm(r) {
+    ensureRefs();
+    if (r !== c.chan && r !== c.lee) return;
+    c.conductPenalty += 10;
+    if (c.result) c.result.acc = clamp(c.result.acc - 10, 0, 100);
+    s.stats.log.push('Harming a case resident undermined your investigation: accuracy −10.');
+  }
+
+  return { residents, handover, minute, onDeath, emergency, residentAction, nurseTalk, records, office, caseFile, objective, shiftScore, frame, onPlayerHarm };
 }

@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { ROOMS, DOORS, SEATS, TABLES, WALL_H, WALL_T } from './data.js';
+import { ROOMS, DOORS, SEATS, WALL_H, WALL_T } from './data.js';
+import { tileTexture, woodTexture, grassTexture, pavingTexture, wallTexture, planarUV, wallUV } from './textures.js';
+import { decorate, STATION } from './decor.js';
 
 const EPS = 1e-3;
 
@@ -29,9 +31,10 @@ function subtract(iv, gaps) {
 }
 
 const FLOOR_COLORS = {
-  bedroom: 0xcfc4ae, single: 0xb9a99a, living: 0xb7b09f, hall: 0xa7aeb0,
-  staff: 0x9fb2a8, care: 0xbfcfd2, therapy: 0xb5b8a0, outdoor: 0x34502d,
+  bedroom: 0xe2d8c2, single: 0xd9c9b6, living: 0xffffff, hall: 0xc9cfd0,
+  staff: 0xbfd2c8, care: 0xd5e3e6, therapy: 0xd6d9bd, outdoor: 0xffffff,
 };
+const FLOOR_TEX = { living: 'wood', outdoor: 'grass', therapy: 'wood' };
 
 function makeLabel(text, size = 1) {
   const c = document.createElement('canvas');
@@ -103,12 +106,37 @@ export function buildMap(scene) {
       for (const [a, b] of segs) emit(axis, at, a, b, 1.1, fenceGeoms);
     }
   }
-  const wallMat = new THREE.MeshLambertMaterial({ color: 0xe2dccf });
-  const wallMesh = new THREE.Mesh(mergeGeometries(wallGeoms), wallMat);
+  const wallGeo = mergeGeometries(wallGeoms);
+  wallUV(wallGeo, WALL_H);
+  const wallMat = new THREE.MeshStandardMaterial({ map: wallTexture(WALL_H), roughness: 0.85 });
+  const wallMesh = new THREE.Mesh(wallGeo, wallMat);
+  wallMesh.castShadow = wallMesh.receiveShadow = true;
   scene.add(wallMesh);
-  scene.add(new THREE.Mesh(mergeGeometries(fenceGeoms), new THREE.MeshLambertMaterial({ color: 0x4a3b2c })));
+  const fence = new THREE.Mesh(mergeGeometries(fenceGeoms), new THREE.MeshStandardMaterial({ color: 0x5a4532, roughness: 0.9 }));
+  fence.castShadow = fence.receiveShadow = true;
+  scene.add(fence);
+
+  // door frames (wood posts + lintel); kept out of wallMesh so the camera doesn't snap under lintels
+  const frameGeoms = [];
+  for (const d of DOORS) {
+    const inWall = [...lines.walls[d.a].values()].some((l) => Math.abs(l.at - d.at) < EPS);
+    if (!inWall || d.w > 2.1) continue;
+    for (const side of [-1, 1]) {
+      const g = new THREE.BoxGeometry(d.a === 'x' ? WALL_T + 0.06 : 0.08, 2.15, d.a === 'x' ? 0.08 : WALL_T + 0.06);
+      const c = d.c + side * (d.w / 2 + 0.04);
+      if (d.a === 'x') g.translate(d.at, 1.075, c); else g.translate(c, 1.075, d.at);
+      frameGeoms.push(g);
+    }
+    const l = new THREE.BoxGeometry(d.a === 'x' ? WALL_T + 0.06 : d.w + 0.16, WALL_H - 2.15, d.a === 'x' ? d.w + 0.16 : WALL_T + 0.06);
+    if (d.a === 'x') l.translate(d.at, (WALL_H + 2.15) / 2, d.c); else l.translate(d.c, (WALL_H + 2.15) / 2, d.at);
+    frameGeoms.push(l);
+  }
+  const frames = new THREE.Mesh(mergeGeometries(frameGeoms), new THREE.MeshStandardMaterial({ color: 0x8a6a48, roughness: 0.6 }));
+  frames.castShadow = frames.receiveShadow = true;
+  scene.add(frames);
 
   // ---------- floors, labels, blocked cores ----------
+  const floorBuckets = new Map();
   for (const r of ROOMS) {
     if (r.type === 'blocked') {
       addBox(r.w - 0.2, WALL_H, r.d - 0.2, r.x + r.w / 2, WALL_H / 2, r.z + r.d / 2, 0x2b2a30, true);
@@ -121,9 +149,9 @@ export function buildMap(scene) {
     const g = new THREE.PlaneGeometry(r.w, r.d);
     g.rotateX(-Math.PI / 2);
     g.translate(r.x + r.w / 2, 0, r.z + r.d / 2);
-    const col = FLOOR_COLORS[r.type] ?? 0xaaaaaa;
-    if (!buckets.has('floor' + col)) buckets.set('floor' + col, []);
-    buckets.get('floor' + col).push(g);
+    const key = `floor|${FLOOR_TEX[r.type] ?? 'tile'}|${FLOOR_COLORS[r.type] ?? 0xcccccc}`;
+    if (!floorBuckets.has(key)) floorBuckets.set(key, []);
+    floorBuckets.get(key).push(g);
     if (r.name) {
       const l = makeLabel(r.name, r.w < 5 ? 0.6 : 1);
       l.position.set(r.x + r.w / 2, 0.02, r.z + r.d / 2);
@@ -147,98 +175,105 @@ export function buildMap(scene) {
       }
     }
   }
-  const bedGeo = {
-    frame: new THREE.BoxGeometry(1.0, 0.45, 2.05),
-    mattress: new THREE.BoxGeometry(0.92, 0.14, 1.9),
-    pillow: new THREE.BoxGeometry(0.7, 0.1, 0.35),
-    locker: new THREE.BoxGeometry(0.45, 0.75, 0.45),
-  };
-  const bedMats = {
-    frame: new THREE.MeshLambertMaterial({ color: 0x8c9399 }),
-    mattress: new THREE.MeshLambertMaterial({ color: 0xe9e6dc }),
-    pillow: new THREE.MeshLambertMaterial({ color: 0xffffff }),
-    locker: new THREE.MeshLambertMaterial({ color: 0x9a7d5c }),
+  // Hospital beds (instanced): base, mattress, folded blanket, pillow, head/foot boards, side rails
+  const N = beds.length;
+  const parts = {
+    under: [new THREE.BoxGeometry(0.8, 0.28, 1.7), new THREE.MeshStandardMaterial({ color: 0x3d444b, roughness: 0.6, metalness: 0.3 }), N],
+    base: [new THREE.BoxGeometry(0.98, 0.1, 2.02), new THREE.MeshStandardMaterial({ color: 0x9aa5ae, roughness: 0.45, metalness: 0.4 }), N],
+    mattress: [new THREE.BoxGeometry(0.9, 0.16, 1.94), new THREE.MeshStandardMaterial({ color: 0xf1f2ee, roughness: 0.9 }), N],
+    blanket: [new THREE.BoxGeometry(0.94, 0.06, 0.62), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 }), N],
+    pillow: [new THREE.BoxGeometry(0.62, 0.11, 0.36), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 }), N],
+    head: [new THREE.BoxGeometry(1.0, 0.72, 0.06), new THREE.MeshStandardMaterial({ color: 0xd8cbb2, roughness: 0.55 }), N],
+    foot: [new THREE.BoxGeometry(1.0, 0.42, 0.06), new THREE.MeshStandardMaterial({ color: 0xd8cbb2, roughness: 0.55 }), N],
+    rail: [new THREE.BoxGeometry(0.04, 0.16, 0.95), new THREE.MeshStandardMaterial({ color: 0xc5ccd2, roughness: 0.3, metalness: 0.6 }), N * 2],
   };
   const inst = {};
-  for (const k of Object.keys(bedGeo)) {
-    inst[k] = new THREE.InstancedMesh(bedGeo[k], bedMats[k], beds.length);
+  for (const [k, [geo, m, count]] of Object.entries(parts)) {
+    inst[k] = new THREE.InstancedMesh(geo, m, count);
+    inst[k].castShadow = inst[k].receiveShadow = true;
     scene.add(inst[k]);
   }
   const m4 = new THREE.Matrix4();
+  const BLANKETS = [0x8fb0c9, 0xb9a6c9, 0x9cc0a6, 0xd9b38c, 0xc98f8f].map((c) => new THREE.Color(c));
   beds.forEach((b, i) => {
-    m4.makeTranslation(b.x, 0.3, b.z); inst.frame.setMatrixAt(i, m4);
-    m4.makeTranslation(b.x, 0.6, b.z); inst.mattress.setMatrixAt(i, m4);
-    m4.makeTranslation(b.x, 0.72, b.z + b.headDir * 0.72); inst.pillow.setMatrixAt(i, m4);
-    m4.makeTranslation(b.x + 0.78, 0.375, b.z + b.headDir * 0.7); inst.locker.setMatrixAt(i, m4);
+    const h = b.headDir;
+    m4.makeTranslation(b.x, 0.2, b.z); inst.under.setMatrixAt(i, m4);
+    m4.makeTranslation(b.x, 0.42, b.z); inst.base.setMatrixAt(i, m4);
+    m4.makeTranslation(b.x, 0.55, b.z); inst.mattress.setMatrixAt(i, m4);
+    m4.makeTranslation(b.x, 0.66, b.z - h * 0.6); inst.blanket.setMatrixAt(i, m4);
+    inst.blanket.setColorAt(i, BLANKETS[i % BLANKETS.length]);
+    m4.makeTranslation(b.x, 0.69, b.z + h * 0.74); inst.pillow.setMatrixAt(i, m4);
+    m4.makeTranslation(b.x, 0.7, b.z + h * 1.0); inst.head.setMatrixAt(i, m4);
+    m4.makeTranslation(b.x, 0.58, b.z - h * 1.0); inst.foot.setMatrixAt(i, m4);
+    m4.makeTranslation(b.x - 0.47, 0.72, b.z + h * 0.35); inst.rail.setMatrixAt(i * 2, m4);
+    m4.makeTranslation(b.x + 0.47, 0.72, b.z + h * 0.35); inst.rail.setMatrixAt(i * 2 + 1, m4);
     colliders.push({ minX: b.x - 0.5, maxX: b.x + 1.02, minZ: b.z - 1.03, maxZ: b.z + 1.03 });
   });
 
-  // ---------- seats & tables ----------
+  // ---------- seats ----------
   const seats = [];
-  for (const [room, list] of Object.entries(SEATS)) {
-    for (const s of list) {
-      seats.push({ ...s, room, occupant: null });
-      const fx = Math.sin(s.f), fz = Math.cos(s.f);
-      const along = Math.abs(fz) > 0.5;
-      addBox(0.55, 0.45, 0.55, s.x, 0.225, s.z, room === 'garden' ? 0x6b4a2e : 0x7a5a48);
-      addBox(along ? 0.55 : 0.12, 0.6, along ? 0.12 : 0.55, s.x - fx * 0.24, 0.75, s.z - fz * 0.24, room === 'garden' ? 0x6b4a2e : 0x7a5a48);
-    }
-  }
-  for (const t of TABLES) addBox(t.w, 0.75, t.d, t.x, 0.375, t.z, 0x8b6b4a, true);
+  for (const [room, list] of Object.entries(SEATS)) for (const st of list) seats.push({ ...st, room, occupant: null });
 
   // ---------- furniture & landmarks ----------
-  // Nurse station (Living Area B)
-  addBox(0.6, 1.05, 3.5, 14.9, 0.525, 28.75, 0x6d7f8a, true);
-  addBox(2.0, 1.05, 0.6, 15.6, 0.525, 30.8, 0x6d7f8a, true);
-  addBox(0.5, 0.35, 0.08, 15.0, 1.25, 28.2, 0x111418);
-  addBox(0.5, 0.35, 0.08, 15.0, 1.25, 29.4, 0x111418);
-  // TV in Living Area A
-  addBox(1.6, 0.9, 0.1, 13, 1.5, 0.2, 0x0c0c10);
-  addBox(1.8, 0.5, 0.45, 13, 0.25, 0.4, 0x5c4636, true);
-  // Bathroom: tub, linen trolley
-  addBox(1.0, 0.6, 2.0, 24.6, 0.3, 31, 0xf2f2f2, true);
-  addBox(1.0, 1.0, 0.6, 19.6, 0.5, 29.6, 0x9db7c9, true);
-  // Toilets
-  addBox(0.5, 0.45, 0.7, 10, 0.225, 18.5, 0xf4f4f4, true);
-  addBox(0.5, 0.45, 0.7, 16, 0.225, 18.5, 0xf4f4f4, true);
-  addBox(0.5, 0.45, 0.7, 35, 0.225, 41.5, 0xf4f4f4, true);
-  // Office desk & CCTV
-  addBox(2.0, 0.75, 0.8, 40, 0.375, 41.4, 0x5a4636, true);
-  addBox(0.7, 0.45, 0.08, 39.6, 1.0, 41.3, 0x0d1013);
-  addBox(0.7, 0.45, 0.08, 40.4, 1.0, 41.3, 0x0d1013);
-  addBox(1.2, 1.8, 0.5, 43.3, 0.9, 38.5, 0x75664f, true);
+  // CCTV monitors on the Ward Manager's desk
+  addBox(0.7, 0.45, 0.06, 39.6, 1.0, 41.25, 0x0d1013);
+  addBox(0.7, 0.45, 0.06, 40.4, 1.0, 41.25, 0x0d1013);
+  // Linen trolley (Bathroom)
+  addBox(1.0, 0.08, 0.6, 19.6, 0.95, 29.6, 0x8aa6ba);
+  addBox(0.96, 0.85, 0.56, 19.6, 0.5, 29.6, 0xd9e3ea, true);
+  addBox(0.9, 0.12, 0.5, 19.6, 0.65, 29.6, 0xf6f6f2);
   // Treatment & medicine
   addBox(5.4, 0.9, 0.6, 29, 0.45, 42.5, 0xb8c7cc, true);
-  addBox(1.0, 0.7, 2.0, 27, 0.35, 39.5, 0xdfe4e6, true);
+  addBox(5.5, 0.04, 0.66, 29, 0.92, 42.5, 0xe8e8e2);
+  addBox(1.0, 0.6, 2.0, 27, 0.3, 39.5, 0x7d8a92, true);
+  addBox(0.9, 0.12, 1.9, 27, 0.66, 39.5, 0x9fc3cf);
   addBox(3.6, 1.8, 0.5, 15, 0.9, 47.6, 0xdbe2e5, true);
-  // Consultation & visiting
-  addBox(1.4, 0.75, 1.0, 29, 0.375, 28.5, 0x7d6450, true);
-  addBox(3.0, 0.7, 0.9, 35, 0.35, 26, 0x6c5a7a, true);
-  // Therapy rooms
-  addBox(3.0, 0.08, 1.5, 12, 0.04, 41, 0x4f7a8a);
-  addBox(0.08, 0.95, 3.0, 15.2, 0.9, 41, 0xbfbfbf);
-  addBox(3.0, 0.08, 1.5, 21.5, 0.04, 59, 0x4f7a8a);
-  // Garden trees
-  for (const [tx, tz] of [[3, 51], [13, 53], [6, 65], [14, 66]]) {
-    addBox(0.35, 1.6, 0.35, tx, 0.8, tz, 0x4b3621, true);
-    const cone = new THREE.ConeGeometry(1.3, 2.4, 6);
-    cone.translate(tx, 2.6, tz);
-    if (!buckets.has(0x2c4a2a)) buckets.set(0x2c4a2a, []);
-    buckets.get(0x2c4a2a).push(cone);
+  addBox(3.62, 0.06, 0.06, 15, 0.9, 47.33, 0x9aa3a8);
+  // Therapy rooms: mats, parallel bars
+  addBox(3.0, 0.06, 1.5, 12, 0.03, 41, 0x3f7f96);
+  addBox(0.06, 0.06, 3.0, 15.0, 0.95, 41, 0xc0c6cc);
+  addBox(0.06, 0.06, 3.0, 15.6, 0.95, 41, 0xc0c6cc);
+  for (const pz of [39.6, 42.4]) for (const px of [15.0, 15.6]) addBox(0.05, 0.95, 0.05, px, 0.475, pz, 0x8f969c);
+  addBox(3.0, 0.06, 1.5, 21.5, 0.03, 59, 0x3f7f96);
+  // Garden: paths and trees
+  const pave = pavingTexture();
+  for (const [x0, x1, z0, z1] of [[3.6, 17, 50.2, 51.8], [7.2, 8.8, 51.8, 65.5], [2.5, 14.5, 62.4, 64.0]]) {
+    const g = new THREE.PlaneGeometry(x1 - x0, z1 - z0);
+    g.rotateX(-Math.PI / 2);
+    g.translate((x0 + x1) / 2, 0.01, (z0 + z1) / 2);
+    planarUV(g, 1.6);
+    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: pave, roughness: 0.95 }));
+    m.receiveShadow = true;
+    scene.add(m);
   }
-  // Halloween decorations put up by staff
-  const pumpkins = [[16.3, 1], [9.7, 1], [15.6, 30.8], [25.4, 47], [8, 50]];
-  for (const [px, pz] of pumpkins) {
-    const s = new THREE.SphereGeometry(0.22, 8, 6);
-    s.scale(1, 0.8, 1);
-    s.translate(px, pz === 30.8 ? 1.22 : 0.18, pz);
-    if (!buckets.has(0xd8661c)) buckets.set(0xd8661c, []);
-    buckets.get(0xd8661c).push(s);
+  const leafGeoms = [];
+  for (const [tx, tz] of [[3, 53], [13, 53], [5, 66], [14, 66]]) {
+    addBox(0.3, 1.8, 0.3, tx, 0.9, tz, 0x4b3621, true);
+    for (const [ox, oy, oz, r] of [[0, 2.4, 0, 1.1], [0.6, 2.0, 0.3, 0.8], [-0.5, 2.1, -0.3, 0.85], [0.1, 3.0, -0.1, 0.75]]) {
+      const ico = new THREE.IcosahedronGeometry(r, 1);
+      ico.translate(tx + ox, oy, tz + oz);
+      leafGeoms.push(ico);
+    }
   }
+  const leaves = new THREE.Mesh(mergeGeometries(leafGeoms), new THREE.MeshStandardMaterial({ color: 0x3d5f30, roughness: 0.9, flatShading: true }));
+  leaves.castShadow = leaves.receiveShadow = true;
+  scene.add(leaves);
 
-  for (const [key, geoms] of buckets) {
-    const color = typeof key === 'string' ? Number(key.slice(5)) : key;
-    const mesh = new THREE.Mesh(mergeGeometries(geoms), new THREE.MeshLambertMaterial({ color }));
+  const decor = decorate(scene, { colliders, beds, seats });
+
+  for (const [color, geoms] of buckets) {
+    const mesh = new THREE.Mesh(mergeGeometries(geoms), new THREE.MeshStandardMaterial({ color, roughness: 0.75 }));
+    mesh.castShadow = mesh.receiveShadow = true;
+    scene.add(mesh);
+  }
+  const texCache = {};
+  const texFor = (t) => (texCache[t] ??= t === 'wood' ? woodTexture() : t === 'grass' ? grassTexture() : tileTexture());
+  for (const [key, geoms] of floorBuckets) {
+    const [, tex, color] = key.split('|');
+    const g = mergeGeometries(geoms);
+    planarUV(g, tex === 'grass' ? 4 : tex === 'wood' ? 3 : 2);
+    const mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: texFor(tex), color: Number(color), roughness: tex === 'grass' ? 1 : tex === 'wood' ? 0.55 : 0.4 }));
+    mesh.receiveShadow = true;
     scene.add(mesh);
   }
 
@@ -291,7 +326,9 @@ export function buildMap(scene) {
   }
 
   const bounds = { minX: -1, maxX: 45, minZ: -1, maxZ: 69 };
-  return { colliders, wallMesh, beds, seats, roomAt, roomById, center, path, bounds, rooms: ROOMS };
+  const inStation = (p) => p.x > STATION.inside.minX && p.x < STATION.inside.maxX && p.z > STATION.inside.minZ && p.z < STATION.inside.maxZ;
+  const noWander = [STATION.outer];
+  return { colliders, wallMesh, beds, seats, roomAt, roomById, center, path, bounds, rooms: ROOMS, station: STATION, inStation, noWander, decor };
 }
 
 export function resolveCollisions(pos, radius, colliders) {

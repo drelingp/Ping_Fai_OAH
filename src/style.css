@@ -32,7 +32,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 #btn-interact:active { transform: scale(.95); }
 #interact-label { grid-column: 1 / 3; max-width: 46vw; font-size: 12px; text-align: right; background: rgba(12,13,18,.72); padding: 4px 8px; border-radius: 6px; min-height: 0; }
 #interact-label:empty { display: none; }
-#actions { grid-template-areas: 'label label' 'pause case' 'btn btn'; }
+#actions { grid-template-areas: 'label label' 'resident resident' 'pause case' 'btn btn'; }
+#btn-resident { grid-area: resident; }
 #interact-label { grid-area: label; }
 #btn-pause { grid-area: pause; }
 #btn-case { grid-area: case; }
@@ -51,9 +52,11 @@ body.touch #keys { display: none; }
 #toast { position: absolute; left: 50%; bottom: 30%; transform: translateX(-50%); max-width: min(480px, 88vw); padding: 9px 14px; border-radius: 9px; background: rgba(12,13,18,.88); font-size: 13px; line-height: 1.4; opacity: 0; transition: opacity .3s; pointer-events: none; text-align: center; }
 #toast.show { opacity: 1; }
 
-#stick { position: absolute; width: 140px; height: 140px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); background: rgba(255,255,255,.05); display: none; pointer-events: none; }
-#stick.active { display: block; }
-#knob { position: absolute; left: 42px; top: 42px; width: 56px; height: 56px; border-radius: 50%; background: rgba(255,255,255,.3); }
+#stick { position: absolute; left: max(18px, env(safe-area-inset-left)); bottom: max(22px, env(safe-area-inset-bottom)); width: 140px; height: 140px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); background: radial-gradient(circle, rgba(255,255,255,.04), rgba(255,255,255,.12)); display: none; touch-action: none; opacity: .75; transition: opacity .15s; }
+body.has-stick #stick { display: block; }
+#stick.active { opacity: 1; }
+#knob { position: absolute; left: 42px; top: 42px; width: 56px; height: 56px; border-radius: 50%; background: rgba(255,255,255,.45); box-shadow: 0 2px 8px rgba(0,0,0,.4); pointer-events: none; }
+body.has-stick #keys { display: none; }
 
 /* panels */
 #panel { position: fixed; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translate(-50%, 20px); width: min(600px, 96vw); max-height: 78vh; display: flex; flex-direction: column; background: rgba(16,17,22,.96); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s; z-index: 20; }
@@ -68,6 +71,7 @@ body.touch #keys { display: none; }
 .opt { text-align: left; padding: 10px 12px; border-radius: 9px; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); font-size: 14px; }
 .opt:hover { background: rgba(255,255,255,.12); }
 .opt.primary { border-color: rgba(255,215,90,.7); background: rgba(255,215,90,.16); }
+.opt.danger { border-color: rgba(255,100,100,.55); background: rgba(160,35,35,.2); color: #ffb4b4; }
 .opt:disabled { opacity: .4; }
 .paper .opt { border-color: rgba(0,0,0,.25); background: rgba(0,0,0,.04); }
 .paper .opt.primary { background: #2a3d55; color: #fff; border-color: #2a3d55; margin-top: 10px; }
