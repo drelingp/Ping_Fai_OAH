@@ -15,14 +15,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 #banners { position: absolute; top: 74px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; width: min(380px, 92vw); }
 .banner { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 8px; text-align: left; padding: 7px 10px; border: 1px solid rgba(255,190,80,.5); background: rgba(48, 34, 10, .88); border-radius: 9px; animation: slide .25s ease-out; }
-.banner.urgent { border-color: rgba(255,80,80,.8); background: rgba(70, 12, 12, .92); animation: slide .25s ease-out, pulse 1s infinite alternate; }
+.banner.urgent { border-color: rgba(255,80,80,.8); background: rgba(70, 12, 12, .92); animation: slide .25s ease-out; box-shadow: 0 0 14px rgba(255,60,60,.45); }
 .b-tag { grid-row: span 2; align-self: center; font-size: 10px; font-weight: 800; letter-spacing: .5px; padding: 3px 6px; border-radius: 5px; background: #ffb84a; color: #2a1a00; }
 .urgent .b-tag { background: #ff5a5a; color: #fff; }
 .b-main { font-weight: 700; font-size: 13px; }
 .b-sub { font-size: 11px; opacity: .85; }
 .banner-more { font-size: 11px; text-align: center; opacity: .8; pointer-events: none; }
 @keyframes slide { from { transform: translateY(-8px); opacity: 0; } }
-@keyframes pulse { to { box-shadow: 0 0 16px rgba(255,60,60,.6); } }
 
 #minimap { position: absolute; top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); width: 120px; height: 182px; background: rgba(8,9,12,.75); border: 1px solid rgba(255,255,255,.15); border-radius: 10px; cursor: pointer; }
 
@@ -131,8 +130,24 @@ body.has-stick #keys { display: none; }
 #title { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: radial-gradient(ellipse at center, rgba(30,18,10,.85), rgba(4,4,6,.97)); transition: opacity .4s; padding: 16px; }
 #title.hide { opacity: 0; pointer-events: none; }
 .title-card { max-width: 520px; text-align: center; }
-.title-card h1 { font-size: clamp(40px, 9vw, 64px); margin: 0; letter-spacing: 4px; color: #e8dcc6; text-shadow: 0 0 24px rgba(216,102,28,.45); }
-.title-card h2 { font-weight: 400; font-size: 16px; margin: 4px 0 18px; color: #d8661c; letter-spacing: 1px; }
+.logo-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+/* Faded institutional sign: stained enamel plate, worn crimson brush lettering. Static, no animation. */
+.logo-sign { position: relative; display: inline-block; margin: 0 auto 6px; padding: 14px clamp(16px, 5vw, 34px) 10px; transform: rotate(-1.2deg);
+  background:
+    radial-gradient(ellipse 38% 55% at 82% 18%, rgba(92,60,28,.32), transparent 70%),
+    radial-gradient(ellipse 30% 70% at 12% 88%, rgba(70,40,20,.38), transparent 72%),
+    radial-gradient(ellipse 12% 40% at 63% 100%, rgba(110,14,16,.28), transparent 75%),
+    linear-gradient(176deg, #cfc6ae, #b3a888 55%, #9c9172);
+  border: 3px solid #4a4236; border-radius: 3px;
+  box-shadow: inset 0 0 26px rgba(40,26,12,.55), inset 0 0 3px rgba(0,0,0,.6), 0 10px 30px rgba(0,0,0,.7); }
+.logo-sign::before, .logo-sign::after { content: ''; position: absolute; top: 7px; width: 7px; height: 7px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #8a7a5e, #3a2f22); box-shadow: 0 1px 1px rgba(0,0,0,.5); }
+.logo-sign::before { left: 7px; }
+.logo-sign::after { right: 7px; }
+.title-card h1.logo-zh { margin: 0; font-size: clamp(42px, 12vw, 76px); line-height: 1.1; letter-spacing: .08em; font-weight: 900; color: #6d0c10;
+  font-family: 'Kaiti TC', 'BiauKai', 'DFKai-SB', 'STKaiti', 'KaiTi', 'AR PL UKai TW', 'Noto Serif TC', 'Noto Serif CJK TC', 'Songti TC', 'PMingLiU', 'WenQuanYi Zen Hei', serif;
+  text-shadow: 1px 1px 0 rgba(30,0,0,.35), 0 0 1px rgba(60,0,0,.6); filter: url(#weathered); }
+.logo-en { margin-top: 2px; padding-top: 5px; border-top: 2px solid rgba(109,12,16,.75); font: 700 clamp(12px, 3.4vw, 16px)/1.2 Georgia, 'Times New Roman', serif; letter-spacing: .32em; text-transform: uppercase; color: #2c241b; filter: url(#weathered); }
+.title-card h2 { font-weight: 400; font-size: 14px; margin: 10px 0 16px; color: #b3a48a; letter-spacing: .28em; text-transform: uppercase; }
 .title-card p { line-height: 1.55; font-size: 14px; opacity: .9; }
 .title-card .warn { font-size: 12px; opacity: .6; }
 .title-card .ctrl { font-size: 12px; opacity: .55; }

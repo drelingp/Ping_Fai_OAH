@@ -48,6 +48,7 @@ export function createCase1(ctx) {
     if (c.chan) return;
     c.chan = s.residents.find((r) => r.name === 'Mr. Chan Kwok-wing');
     c.lee = s.residents.find((r) => r.name === 'Mr. Lee Chi-ming');
+    if (!c.care.washed || !c.care.bag) c.chan.hygiene = { body: !c.care.washed, bedding: !c.care.washed, bag: !c.care.bag };
     const b = c.chan.bed;
     c.props = makeRestraintProps();
     c.props.position.set(b.x, 0, b.z + b.headDir * 0.05);
@@ -117,7 +118,7 @@ export function createCase1(ctx) {
       };
       if (!c.care.bag) return {
         kind: 'hold', dur: 1.5, minutes: 5, label: 'Empty catheter bag & record output',
-        run: () => { c.care.bag = true; scene.remove(c.bag); ui.toast('1,100 ml — dark, strong-smelling. Nobody has emptied this since last evening.'); },
+        run: () => { c.care.bag = true; c.chan.hygiene.bag = false; scene.remove(c.bag); ui.toast('1,100 ml — dark, strong-smelling. Nobody has emptied this since last evening.'); },
       };
       if (!c.care.washed) {
         if (!s.linen) return {
@@ -126,7 +127,7 @@ export function createCase1(ctx) {
         };
         return {
           kind: 'hold', dur: 3.0, minutes: 20, label: 'Wash Mr. Chan & change his bedding',
-          run: () => { c.care.washed = true; s.linen = false; c.chan.wellbeing = Math.min(100, c.chan.wellbeing + 12); ui.toast('Clean, dry and repositioned. Sacral skin is red but intact. Mr. Lee is watching you.'); },
+          run: () => { c.care.washed = true; c.chan.hygiene.body = c.chan.hygiene.bedding = false; s.linen = false; c.chan.wellbeing = Math.min(100, c.chan.wellbeing + 12); ui.toast('Clean, dry and repositioned. Sacral skin is red but intact. Mr. Lee is watching you.'); },
         };
       }
       return {

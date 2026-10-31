@@ -51,20 +51,25 @@ export function makeResident(r) {
   return g || makePerson({ body: gown, hair, skin: SKIN[(r.seed >> 4) % SKIN.length] });
 }
 
-export function makeNurse(color) {
+// Every nurse (staff, agency and the player) wears the same blue-purple scrubs, no hat.
+export const SCRUB = { top: 0x5b5fb8, trim: 0x8c8fe0, bottom: 0x4a4e9e, shoe: 0xeeeeee };
+const NURSE_HAIR = [0x1d1a18, 0x2b211b, 0x15120f, 0x3a2a20];
+
+export function makeNurse(seed = 0) {
+  const k = typeof seed === 'number' ? seed : 0;
   const g = character('human', {
-    skin: SKIN_TONES[1], hair: 0x1d1a18, top: color, trim: 0xffffff, bottom: color, shoe: 0xf2f2f2, hem: 0.88, sleeve: 0.3,
-    cap: true, badge: 0x3a6fb0, height: 1.6,
+    skin: SKIN_TONES[k % SKIN_TONES.length], hair: NURSE_HAIR[(k >> 2) % NURSE_HAIR.length], ...SCRUB, hem: 0.88, sleeve: 0.3,
+    badge: 0xe8e8f4, height: 1.58 + (k % 3) * 0.02,
   });
-  return g || makePerson({ body: color, hair: 0x1d1a18, skin: SKIN[1], cap: true });
+  return g || makePerson({ body: SCRUB.top, hair: 0x1d1a18, skin: SKIN[1] });
 }
 
 export function makePlayer() {
   const g = character('human', {
-    skin: SKIN_TONES[2], hair: 0x15120f, top: 0x23314d, trim: 0xd6b25a, bottom: 0x1c2638, shoe: 0x111111, hem: 0.88, sleeve: 0.3,
-    cap: true, badge: 0xd6b25a, height: 1.66,
+    skin: SKIN_TONES[2], hair: 0x15120f, ...SCRUB, hem: 0.88, sleeve: 0.3,
+    badge: 0xd6b25a, height: 1.66,
   });
-  return g || makePerson({ body: 0x23314d, hair: 0x15120f, skin: SKIN[2], cap: true });
+  return g || makePerson({ body: SCRUB.top, hair: 0x15120f, skin: SKIN[2] });
 }
 
 // Visual props for the restrained resident (Case 1)

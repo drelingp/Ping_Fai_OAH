@@ -13,7 +13,14 @@ const ACTIONS = [
 const strapGeo = new THREE.BoxGeometry(0.06, 0.04, 0.14);
 const strapMat = new THREE.MeshStandardMaterial({ color: 0xd8cfa6, roughness: 0.9 });
 
-export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1 }) {
+export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1, escort = null }) {
+  // The actor turns to the resident and both react, so every act is visible in the scene.
+  function perform(r, actorAnim, residentAnim) {
+    const p = s.player;
+    if (r.pos) p.heading = Math.atan2(r.pos.x - p.x, r.pos.z - p.z);
+    gesture(p.mesh, actorAnim, 1.4);
+    if (residentAnim) gesture(r.mesh, residentAnim, 1.2);
+  }
   const nearby = (a, b) => dist(a.pos, b.pos) < 7 ||
     map.roomAt(a.pos.x, a.pos.z)?.id === map.roomAt(b.pos.x, b.pos.z)?.id;
   const record = (text) => {
@@ -35,7 +42,7 @@ export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1
   }
   function valid(r, id) {
     if (!r.alive || !s.running || s.paused || dist(s.player, r.pos) > 2.3) return false;
-    if (id === 'restrain') return !r.playerRestrained;
+    if (id === 'restrain') return !r.playerRestrained && !s.escort;
     if (id === 'silence') return s.bells.some((b) => b.res === r);
     if (id === 'withhold') return !(r.withholdUntil > s.now);
     if (id === 'sedate') return !(r.sedatedUntil > s.now) && (s.medicineRound || map.inStation(s.player));
@@ -89,12 +96,14 @@ export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1
     case1.onPlayerHarm(r);
     switch (action.id) {
       case 'restrain':
+        // Committed here (penalty above); the restraint itself is applied at the bedside.
+        if (escort?.start(r, () => { r.playerRestrained = true; restrainVisual(r); })) break;
         if (r.mode === 'wander') r.mesh.userData.mode = 'stand';
         r.playerRestrained = true;
         restrainVisual(r);
         break;
       case 'rough':
-        gesture(s.player.mesh, 'interact');
+        perform(r, 'interact', 'hit');
         if (Math.random() < 0.1) {
           r.wellbeing = clamp(r.wellbeing - 15, 0, 100);
           s.stats.incidents++;
@@ -103,12 +112,13 @@ export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1
         }
         break;
       case 'shout':
-        gesture(s.player.mesh, 'talk');
+        perform(r, 'talk', 'hit');
         for (const other of s.residents) if (other !== r && other.alive && dist(other.pos, r.pos) < 7) {
           other.wellbeing = clamp(other.wellbeing - 2, 0, 100);
         }
         break;
       case 'silence': {
+        perform(r, 'interact', 'talk');
         const bell = s.bells.find((b) => b.res === r);
         if (bell.nurse) { bell.nurse.bell = null; bell.nurse.path = []; }
         s.bells = s.bells.filter((b) => b !== bell);
@@ -119,10 +129,12 @@ export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1
         break;
       }
       case 'withhold':
+        perform(r, 'pickup', 'talk');
         r.withholdUntil = s.now + 180;
         break;
       case 'sedate':
         placeInBed(r);
+        perform(r, 'interact', 'hit');
         r.sedatedUntil = s.now + 240;
         for (const bell of s.bells.filter((b) => b.res === r)) {
           if (bell.nurse) { bell.nurse.bell = null; bell.nurse.path = []; }

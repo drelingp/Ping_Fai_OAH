@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#07080c" />
-    <title>Night Ward — Ping Fai Care Home</title>
+    <title>秉暉護老院 Ping Fai Nursing Home — Night Ward</title>
   </head>
   <body>
     <canvas id="scene"></canvas>
@@ -47,8 +47,20 @@
 
     <div id="title">
       <div class="title-card">
-        <h1>Night Ward</h1>
-        <h2>Halloween at Ping Fai Care Home</h2>
+        <svg class="logo-defs" width="0" height="0" aria-hidden="true" focusable="false">
+          <filter id="weathered" x="-5%" y="-10%" width="110%" height="120%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="11" result="grain" />
+            <feDisplacementMap in="SourceGraphic" in2="grain" scale="3.5" xChannelSelector="R" yChannelSelector="G" result="rough" />
+            <feTurbulence type="fractalNoise" baseFrequency="0.04 0.55" numOctaves="2" seed="4" result="streak" />
+            <feColorMatrix in="streak" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -2.4 1.75" result="wear" />
+            <feComposite in="rough" in2="wear" operator="in" />
+          </filter>
+        </svg>
+        <div class="logo-sign">
+          <h1 class="logo-zh" lang="zh-Hant">秉暉護老院</h1>
+          <div class="logo-en">Ping Fai Nursing Home</div>
+        </div>
+        <h2>Night Ward · a Halloween shift</h2>
         <p>You are the <b>Shift In-Charge</b> on a single floor of 30–42 residents. Most of your nurses cut corners — some do worse. Do your rounds, answer call bells, manage a short-handed team, and find out what the charts aren't telling you.</p>
         <p class="warn">Content note: depicts elder neglect, physical restraint and death in a care setting. Optional fictional misconduct choices harm residents and lower your score. No supernatural events — every horror here has a human cause.</p>
         <button id="start">Begin AM shift — 07:00</button>
