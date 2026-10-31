@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import { smoothBody } from './body.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -88,7 +89,7 @@ export async function loadAssets(onProgress = () => {}) {
     try {
       const gltf = await loader.loadAsync(base + path);
       prep(gltf.scene);
-      if (key.startsWith('char:')) { addRestAttribute(gltf.scene); charData.set(key.slice(5), { scene: gltf.scene, animations: gltf.animations }); }
+      if (key.startsWith('char:')) { smoothBody(gltf.scene); addRestAttribute(gltf.scene); charData.set(key.slice(5), { scene: gltf.scene, animations: gltf.animations }); }
       else templates.set(key, normalise(gltf.scene));
     } catch (e) {
       throw new Error(`Model failed to load: ${path}`, { cause: e });
@@ -127,8 +128,6 @@ const faceGeo = mergeGeometries([
   new THREE.BoxGeometry(0.035, 0.006, 0.003).translate(0, -0.035, 0.009),
 ]);
 const eyeMat = new THREE.MeshBasicMaterial({ color: 0x15100c });
-const capGeo = new THREE.BoxGeometry(0.15, 0.05, 0.1);
-const capMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7 });
 const lanyardGeo = new THREE.BoxGeometry(0.05, 0.07, 0.01);
 
 function outfitMaterial(base, o) {
@@ -187,12 +186,6 @@ export function character(name, outfit) {
     const face = new THREE.Mesh(faceGeo, eyeMat);
     face.position.set(0, 1.645, 0.093);
     head.attach(face);
-    if (outfit.cap) {
-      const c = new THREE.Mesh(capGeo, capMat);
-      c.position.set(0, 1.79, 0.01);
-      c.castShadow = true;
-      head.attach(c);
-    }
   }
   if (outfit.badge) {
     const spine = inner.getObjectByName('spine_03');
@@ -236,6 +229,7 @@ export function character(name, outfit) {
 export function gesture(g, name, seconds = 1.6) {
   if (!g?.userData.anim) return;
   g.userData.forceAnim = name;
+  g.userData.forceDur = seconds * 1000;
   g.userData.forceUntil = performance.now() + seconds * 1000;
 }
 
@@ -252,9 +246,21 @@ export function updateCharacters(dt) {
     if (g.userData.forceUntil && now > g.userData.forceUntil) g.userData.forceAnim = g.userData.forceUntil = null;
     const mode = g.userData.mode || 'stand';
     let want;
+    const force = g.userData.forceAnim;
+    // Lying or seated residents react in place: a body stir/flinch instead of a full-body clip.
+    if (mode === 'bed' || mode === 'seat') {
+      let roll = 0;
+      if (force) {
+        const k = Math.max(0, (g.userData.forceUntil - now) / (g.userData.forceDur || 1000));
+        const sharp = force === 'hit' || force === 'push' || force === 'punch';
+        const tt = (1 - k) * (g.userData.forceDur || 1000) / 1000;
+        roll = (sharp ? 0.2 : 0.08) * Math.sin(tt * (sharp ? 11 : 4)) * k;
+      }
+      a.inner.rotation.y = mode === 'bed' ? roll : roll * 0.8;
+    } else if (a.inner.rotation.y) a.inner.rotation.y = 0;
     if (mode === 'bed') want = 'idle';
-    else if (g.userData.forceAnim) want = g.userData.forceAnim;
-    else if (mode === 'seat') want = 'sit';
+    else if (mode === 'seat') want = force === 'talk' || force === 'interact' || force === 'hit' || force === 'push' ? 'sitTalk' : 'sit';
+    else if (force) want = force;
     else if (speed > 3.6) want = 'sprint';
     else if (speed > 1.9) want = 'run';
     else if (speed > 0.15) want = 'walk';

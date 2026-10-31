@@ -134,7 +134,7 @@ export function createUI() {
     const sc = Math.min(cw / W, ch / H);
     const ox = (cw - W * sc) / 2, oy = (ch - H * sc) / 2;
     const P = (x, z) => [ox + (x + 1) * sc, oy + (z + 1) * sc];
-    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180);
+    const pulse = 0.6;
     const bellRooms = new Map();
     for (const b of s.bells) bellRooms.set(b.res.roomId, Math.max(bellRooms.get(b.res.roomId) || 0, b.urgent ? 2 : 1));
 

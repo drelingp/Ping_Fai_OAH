@@ -257,7 +257,7 @@ function frame(now) {
   beacon.visible = !!wp;
   if (wp) {
     beacon.position.set(wp.x, 3.5, wp.z);
-    beacon.material.opacity = 0.25 + 0.15 * Math.sin(now / 200);
+    beacon.material.opacity = 0.32;
   }
 
   renderer.info.reset();
