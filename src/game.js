@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SHIFTS, NURSES, SURNAMES, MALE, FEMALE, PERSONALITIES, ROUTINES, NEEDS, BELL_NEEDS, WANDER_AREAS } from './data.js';
+import { SHIFTS, NURSES, SURNAMES, MALE, FEMALE, PERSONALITIES, ROUTINES, NEEDS, BELL_NEEDS, WANDER_AREAS, DIFFICULTY, DEFAULT_DIFFICULTY, bellChance } from './data.js';
 import { makeResident, makeNurse, makeRestraintProps, makeUrineBag, pose } from './people.js';
 import { createHarm } from './harm.js';
 import { createEscort } from './escort.js';
@@ -34,7 +34,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
   const s = {
     day: 1, shiftIdx: 0, now: 7 * 60, shiftStart: 7 * 60, shiftEnd: 14 * 60, nextMinute: 7 * 60 + 1,
     residents: [], nurses: [], onShift: [], bells: [],
-    reputation: 70, suspicion: 0, linen: false, medicineRound: false,
+    reputation: 70, suspicion: 0, linen: false, medicineRound: false, difficulty: DEFAULT_DIFFICULTY,
     waypoint: null, paused: false, running: false,
     stats: null, relief: null, nextBellId: 1, ended: false, inquiry: false, conductReports: [], totalHarm: 0, conductInquiry: false,
     player,
@@ -311,8 +311,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     const expected = shift.staffTotal - 1;
     const present = s.onShift.filter((n) => !n.arriveAt || s.now >= n.arriveAt).length;
     const factor = clamp(present / expected, 0.4, 1);
-    const mean = (shift.id === 'NIGHT' ? 30 : 20) * factor;
-    if (s.bells.length < 6 && Math.random() < 1 / mean) {
+    if (Math.random() < bellChance(s.difficulty, shift.id, factor, s.bells.length)) {
       const cands = s.residents.filter((r) => r.alive && r.mode === 'bed' && !r.case && !(r.sedatedUntil > s.now) && !s.bells.some((b) => b.res === r));
       if (cands.length) {
         const bn = pick(BELL_NEEDS);
@@ -495,7 +494,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     const bar = (v) => `<span class="bar"><i style="width:${clamp(v, 0, 100)}%"></i></span>${Math.round(v)}`;
     ui.openPanel(`
       <div class="doc report">
-        <div class="doc-head"><b>End of ${esc(SHIFTS[s.shiftIdx].name)} — Day ${s.day}</b><span>Grade ${grade} · ${Math.round(score)}/100</span></div>
+        <div class="doc-head"><b>End of ${esc(SHIFTS[s.shiftIdx].name)} — Day ${s.day}</b><span>${esc(DIFFICULTY[s.difficulty]?.label ?? '')} · Grade ${grade} · ${Math.round(score)}/100</span></div>
         <table class="doc-table score">
           <tr><td>Resident wellbeing</td><td>${bar(W)}</td></tr>
           <tr><td>Call-bell care</td><td>${bar(C)} <small>(you ${s.stats.bellsYou}, staff ${s.stats.bellsStaff}, incidents ${s.stats.incidents})</small></td></tr>
@@ -779,7 +778,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     const present = s.onShift.filter((n) => !n.arriveAt || s.now >= n.arriveAt).length + 1;
     ui.setHud({
       time: fmtTime(s.now),
-      shift: `${shift.name} ${fmtTime(shift.start)}–${fmtTime(shift.end)} · Day ${s.day}${scale < 1 && scale > 0 ? ' · time slowed' : ''}`,
+      shift: `${shift.name} ${fmtTime(shift.start)}–${fmtTime(shift.end)} · Day ${s.day} · ${DIFFICULTY[s.difficulty]?.label ?? ''}${scale < 1 && scale > 0 ? ' · time slowed' : ''}`,
       staff: `Staff on floor ${present}/${shift.staffTotal}${s.onShift.some((n) => n.arriveAt && s.now < n.arriveAt) ? ' (relief en route)' : ''}`,
       rep: s.reputation, susp: s.suspicion,
     });

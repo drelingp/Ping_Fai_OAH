@@ -34,7 +34,8 @@ npm test         # misconduct/consequence regression tests (Node's built-in runn
 - **Shifts:** AM 07–14 has 4 nurses, PM 14–21 has 4, Night 21–07 has 2; all counts include you. Sometimes a nurse calls in sick and you decide how to cover. 1 real second equals 1 game minute. Time slows while a panel is open, except during emergencies.
 - **Staff:** most nurses are harmful; a few are overwhelmed or helpful. Trust is earned through what you do. All nurses, including you, wear hatless blue-purple scrubs.
 - **Hygiene:** residents left in bed too long (especially restrained or sedated ones) can become soiled. Odour wisps and a stink icon mark them, and wellbeing slowly drops. Hold **Wash & change** beside them to clean them up.
-- **Call bells:** a ringing bell raises a banner. After 30 minutes it becomes urgent, and if left too long it causes an incident. Tap a banner to see the resident's profile and set a waypoint.
+- **Call bells:** a ringing bell raises a banner. After 30 minutes it becomes urgent, and if left too long it causes an incident. Tap a banner to see the resident's profile and set a waypoint. A banner blinks 3 times when it appears or turns urgent, then stays steady. On phones, banners are single lines: up to 2 are shown, plus a "+N more" line.
+- **Difficulty:** choose it on the title screen (it is remembered), or add `?d=easy|normal|hard` to the URL. It changes only how often random call bells ring and how many can be open at once: Easy rings about every 60 min with up to 3 open, Normal (the default) about every 35 min with up to 4, and Hard about every 20 min with up to 6. Night shift rings 1.5× less often.
 - **Case 1, Bed 4-2:** the night handover says Mr. Chan is fine, but you find him restrained and neglected. To work the case:
   1. Give care in three hold steps; the last one needs clean linen from the trolley.
   2. Confront Nurse Ko.

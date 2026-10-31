@@ -99,6 +99,23 @@ export const SHIFTS = [
   { id: 'NIGHT', name: 'Night shift', start: 21 * 60, end: 31 * 60, staffTotal: 2 },
 ];
 
+// Random call-bell pacing: mean game-minutes between new bells on a fully staffed
+// day shift (night is ×1.5 slower) and the most random bells open at once.
+export const DIFFICULTY = {
+  easy: { label: 'Easy', bellEvery: 60, maxBells: 3 },
+  normal: { label: 'Normal', bellEvery: 35, maxBells: 4 },
+  hard: { label: 'Hard', bellEvery: 20, maxBells: 6 },
+};
+export const DEFAULT_DIFFICULTY = 'normal';
+
+// Per-minute chance of a new random call bell (0 when the cap is reached).
+// staffFactor < 1 when short-staffed, which makes bells more frequent.
+export function bellChance(difficulty, shiftId, staffFactor, openBells) {
+  const d = Object.hasOwn(DIFFICULTY, difficulty ?? '') ? DIFFICULTY[difficulty] : DIFFICULTY[DEFAULT_DIFFICULTY];
+  if (openBells >= d.maxBells) return 0;
+  return 1 / (d.bellEvery * (shiftId === 'NIGHT' ? 1.5 : 1) * staffFactor);
+}
+
 export const NURSES = [
   { id: 'ko', name: 'Nurse Ko Mei-ling', shift: 'AM', color: 0x5aa6b8 },
   { id: 'wong', name: 'Nurse Wong Siu-fong', shift: 'AM', color: 0x6fae8f },
