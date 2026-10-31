@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { SHIFTS, NURSES, SURNAMES, MALE, FEMALE, PERSONALITIES, ROUTINES, NEEDS, BELL_NEEDS, WANDER_AREAS } from './data.js';
 import { makeResident, makeNurse, makeRestraintProps, makeUrineBag, pose } from './people.js';
+import { createHarm } from './harm.js';
 import { resolveCollisions } from './map.js';
 import { createCase1 } from './case1.js';
 import { esc, fmtTime } from './ui.js';
@@ -16,7 +17,6 @@ const BED_PRIORITY = {
   walking: ['bed3', 'bed5', 'bed2', 'bed6', 'bed1', 'bed4'],
 };
 const ASSIGNABLE = ['bed1', 'bed2', 'bed3', 'bed4', 'bed5', 'bed6'];
-const STATION_SPOTS = [{ x: 13.6, z: 27.6 }, { x: 13.6, z: 29.8 }, { x: 13.2, z: 31.4 }];
 const CHAT = [
   '"Is it morning already? The lights never change in here."',
   '"My daughter is coming on Sunday. She said Sunday."',
@@ -27,12 +27,13 @@ const CHAT = [
 ];
 
 export function createGame({ scene, map, ui, input, player, env }) {
+  const STATION_SPOTS = map.station.spots;
   const s = {
     day: 1, shiftIdx: 0, now: 7 * 60, shiftStart: 7 * 60, shiftEnd: 14 * 60, nextMinute: 7 * 60 + 1,
     residents: [], nurses: [], onShift: [], bells: [],
-    reputation: 70, suspicion: 0, linen: false,
+    reputation: 70, suspicion: 0, linen: false, medicineRound: false,
     waypoint: null, paused: false, running: false,
-    stats: null, relief: null, nextBellId: 1, ended: false, inquiry: false,
+    stats: null, relief: null, nextBellId: 1, ended: false, inquiry: false, conductReports: [], totalHarm: 0, conductInquiry: false,
     player,
   };
   const game = { state: s };
@@ -68,6 +69,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     }
   }
   function removeResident(r) {
+    harm.remove(r);
     r.alive = false;
     if (r.bed) r.bed.occupant = null;
     if (r.seat) r.seat.occupant = null;
@@ -143,6 +145,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     for (const r of s.residents) {
       if (!r.alive) continue;
       r.seat = null;
+      if (r.playerRestrained || r.sedatedUntil > s.now) { placeInBed(r); continue; }
       const night = shift === 'NIGHT';
       if (r.case || r.single || r.mobility === 'bedbound') { placeInBed(r); continue; }
       if (night && !(r.needs.includes('Night-time confusion') && Math.random() < 0.35)) { placeInBed(r); continue; }
@@ -167,7 +170,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
   function randomIn(room, inset) {
     for (let i = 0; i < 20; i++) {
       const p = { x: rnd(room.x + inset, room.x + room.w - inset), z: rnd(room.z + inset, room.z + room.d - inset) };
-      const blocked = map.colliders.some((c) => p.x > c.minX - 0.4 && p.x < c.maxX + 0.4 && p.z > c.minZ - 0.4 && p.z < c.maxZ + 0.4);
+      const blocked = [...map.colliders, ...map.noWander].some((c) => p.x > c.minX - 0.4 && p.x < c.maxX + 0.4 && p.z > c.minZ - 0.4 && p.z < c.maxZ + 0.4);
       if (!blocked) return p;
     }
     return { x: room.x + room.w / 2, z: room.z + room.d / 2 };
@@ -205,7 +208,19 @@ export function createGame({ scene, map, ui, input, player, env }) {
     n.mesh.position.set(n.pos.x, 0, n.pos.z);
     n.path = []; n.wait = rnd(2, 8); n.bell = null;
   }
-  function nurseGoto(n, to) { n.path = map.path(n.pos, to); }
+  // Route through the nurse station's counter gap rather than through the counters.
+  function nurseGoto(n, to) {
+    const st = map.station;
+    const fromIn = map.inStation(n.pos), toIn = map.inStation(to);
+    let pts;
+    if (fromIn && toIn) pts = [to];
+    else {
+      pts = map.path(fromIn ? st.entryOut : n.pos, toIn ? st.entryOut : to);
+      if (toIn) pts.push(st.entryIn, to);
+      if (fromIn) pts.unshift(st.entryIn, st.entryOut);
+    }
+    n.path = pts;
+  }
   function nurseNextTask(n) {
     const helpful = n.disposition !== 'harmful';
     const roll = Math.random();
@@ -273,13 +288,20 @@ export function createGame({ scene, map, ui, input, player, env }) {
     if (s.waypoint?.bell === b) s.waypoint = null;
   }
   function bellMinute() {
+    for (const r of s.residents) if (r.alive && r.silencedNeed && r.silencedNeed.due <= s.nextMinute && !(r.sedatedUntil > s.nextMinute)) {
+      const need = r.silencedNeed.need;
+      r.silencedNeed = null;
+      const existing = s.bells.find((b) => b.res === r);
+      if (existing) { existing.urgent = true; existing.need = `${need} (unmet after your conduct)`; }
+      else spawnBell(r, `${need} (unmet after your conduct)`, true);
+    }
     const shift = SHIFTS[s.shiftIdx];
     const expected = shift.staffTotal - 1;
     const present = s.onShift.filter((n) => !n.arriveAt || s.now >= n.arriveAt).length;
     const factor = clamp(present / expected, 0.4, 1);
     const mean = (shift.id === 'NIGHT' ? 30 : 20) * factor;
     if (s.bells.length < 6 && Math.random() < 1 / mean) {
-      const cands = s.residents.filter((r) => r.alive && r.mode === 'bed' && !r.case && !s.bells.some((b) => b.res === r));
+      const cands = s.residents.filter((r) => r.alive && r.mode === 'bed' && !r.case && !(r.sedatedUntil > s.now) && !s.bells.some((b) => b.res === r));
       if (cands.length) {
         const bn = pick(BELL_NEEDS);
         spawnBell(pick(cands), bn.need, bn.urgent && Math.random() < 0.6);
@@ -314,15 +336,18 @@ export function createGame({ scene, map, ui, input, player, env }) {
 
   // ---------- time ----------
   function minuteTick() {
+    harm.minute(s.nextMinute);
     bellMinute();
     case1.minute();
     for (const r of s.residents) {
       if (!r.alive) continue;
       // Neglect pressure in rooms covered by harmful staff
-      const owner = s.onShift.find((n) => n.assigned.includes(r.roomId));
-      if (owner && owner.disposition === 'harmful' && !owner.supervised) r.wellbeing -= 0.012;
-      else r.wellbeing += 0.006;
-      if (dist(r.pos, player) < 6) r.wellbeing += 0.01;
+      if (r.wellbeing > 0) {
+        const owner = s.onShift.find((n) => n.assigned.includes(r.roomId));
+        if (owner && owner.disposition === 'harmful' && !owner.supervised) r.wellbeing -= 0.012;
+        else r.wellbeing += 0.006;
+        if (dist(r.pos, player) < 6) r.wellbeing += 0.01;
+      }
       r.wellbeing = Math.min(100, r.wellbeing);
       if (r.wellbeing <= 0) {
         removeResident(r);
@@ -387,7 +412,9 @@ export function createGame({ scene, map, ui, input, player, env }) {
     s.nextMinute = s.now + 1;
     s.bells = [];
     s.waypoint = null;
-    s.stats = { bellsYou: 0, bellsStaff: 0, incidents: 0, deaths: 0, log: [], startRep: s.reputation, caseLine: null };
+    s.medicineRound = false;
+    s.stats = { bellsYou: 0, bellsStaff: 0, incidents: 0, deaths: 0, harm: 0, harmReports: 0, log: [], startRep: s.reputation, caseLine: null };
+    harm.nextShift();
     s.residents.forEach((r) => (r.lastSeen = null));
     applyRoutine();
     s.nurses.forEach((n) => { n.mesh.visible = false; n.sick = false; n.bell = null; n.path = []; n.supervisedToday = false; });
@@ -402,7 +429,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     s.onShift.forEach(startNurse);
     assignRooms();
     env.setShift(shift.id);
-    player.x = 13.2; player.z = 29.5; player.heading = Math.PI;
+    player.x = 15.9; player.z = 28.25; player.heading = -Math.PI / 2;
     s.running = true;
     staffPrompt(() => showHandover());
   }
@@ -438,7 +465,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     const C = clamp(100 * answered / Math.max(1, answered + s.stats.incidents * 2 + s.bells.length), 0, 100);
     const T = s.onShift.length ? s.onShift.reduce((a, n) => a + n.trust, 0) / s.onShift.length : 50;
     const inv = case1.shiftScore();
-    const score = clamp(0.35 * W + 0.25 * C + 0.2 * (inv ?? C) + 0.1 * T + 0.1 * (100 - s.suspicion) - s.stats.deaths * 10, 0, 100);
+    const score = clamp(0.35 * W + 0.25 * C + 0.2 * (inv ?? C) + 0.1 * T + 0.1 * (100 - s.suspicion) - s.stats.deaths * 10 - s.stats.harm * 8, 0, 100);
     const grade = score >= 85 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : score >= 40 ? 'D' : 'F';
     const notes = [];
     if (s.stats.bellsYou > s.stats.bellsStaff * 2) notes.push('You carried the floor yourself — residents were safer, but investigation time was lost.');
@@ -458,6 +485,9 @@ export function createGame({ scene, map, ui, input, player, env }) {
           <tr><td>Home reputation</td><td>${bar(s.reputation)} <small>(${s.reputation - s.stats.startRep >= 0 ? '+' : ''}${Math.round(s.reputation - s.stats.startRep)})</small></td></tr>
           <tr><td>Deaths</td><td>${s.stats.deaths}</td></tr>
         </table>
+        <h4>Your conduct</h4>
+        <p>${s.stats.harm} harmful act(s) · score penalty −${s.stats.harm * 8} · ${s.stats.harmReports} witness report(s).
+        Restraint and other ongoing effects carry into later shifts until released or expired.</p>
         ${s.stats.caseLine ? `<p><b>Case:</b> ${s.stats.caseLine}</p>` : ''}
         ${notes.length ? `<ul>${notes.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
         ${s.stats.log.length ? `<h4>Incident log</h4><ul>${s.stats.log.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
@@ -486,11 +516,33 @@ export function createGame({ scene, map, ui, input, player, env }) {
         <div class="p-row"><i>Routine</i>${esc(r.routine)}</div>
         <div class="p-row"><i>Support needs</i>${esc(r.needs.join(' · '))}</div>
         ${r.note ? `<div class="p-row story"><i>Note</i>${esc(r.note)}</div>` : ''}
+        ${harm.status(r).length ? `<div class="p-row story"><i>Your conduct</i>${esc(harm.status(r).join(' · '))}</div>` : ''}
         <div class="p-row"><i>Last seen</i>${ls ? `${esc(ls.roomName)} at ${fmtTime(ls.t)}` : 'Not seen this shift'}</div>
       </div>`;
   }
   game.openProfile = (r, extraOpts = []) => {
-    ui.dialogue('Resident profile', profileHtml(r), [...extraOpts, { label: 'Close', fn: () => ui.closePanel() }]);
+    const near = r.alive && dist(player, r.pos) <= 2.3;
+    const care = near ? case1.residentAction(r) : null;
+    const bell = s.bells.find((b) => b.res === r);
+    const careOptions = near ? [{
+      label: care?.kind === 'tap' ? care.label : care ? `Care: ${care.label} (hold E at bedside)` : bell ? 'Care: answer call bell (hold E at bedside)' : 'Care: offer reassurance',
+      cls: 'primary',
+      fn: () => {
+        ui.closePanel();
+        if (care?.kind === 'tap') care.run();
+        else if (!care && !bell) {
+          if (s.now - r.lastChat > 30) { r.lastChat = s.now; r.wellbeing = Math.min(100, r.wellbeing + 3); }
+          ui.toast(pick(CHAT));
+        }
+      },
+    }] : [];
+    ui.dialogue('Resident profile', profileHtml(r), [...extraOpts, ...careOptions, ...harm.options(r), { label: 'Close', fn: () => ui.closePanel() }]);
+  };
+  game.residentOptions = (r) => harm.options(r);
+  ui.onResident = () => {
+    if (ui.panelOpen || !s.running || s.paused || holding) return;
+    const r = s.residents.filter((r) => r.alive && dist(player, r.pos) <= 2.3).sort((a, b) => dist(player, a.pos) - dist(player, b.pos))[0];
+    if (r) game.openProfile(r);
   };
   ui.onBannerTap = (id) => {
     const b = s.bells.find((x) => x.id === id);
@@ -537,11 +589,16 @@ export function createGame({ scene, map, ui, input, player, env }) {
       list.push({ d, pos: n.pos, kind: 'tap', label: `Talk to ${n.name}`, run: () => talkNurse(n) });
     }
     const fixed = [
-      { pos: { x: 13.9, z: 28.8 }, label: 'Nurse station: records & handover', run: () => case1.records() },
+      { pos: map.station.records, available: map.inStation(player), label: 'Nurse station: records & handover', run: () => case1.records() },
+      { pos: { x: 16.0, z: 29.3 }, available: map.inStation(player), label: s.medicineRound ? 'Return medicine-round trolley' : 'Take medicine-round trolley', run: () => {
+        s.medicineRound = !s.medicineRound;
+        ui.toast(s.medicineRound ? 'Medicine round started. Unauthorised sedation is harmful, not care.' : 'Medicine-round trolley returned.');
+      } },
       { pos: { x: 40, z: 40.4 }, label: "Ward Manager's desk: CCTV & reports", run: () => case1.office() },
       { pos: { x: 19.6, z: 30.3 }, label: s.linen ? 'Linen trolley (you have clean linen)' : 'Take clean linen', run: () => { s.linen = true; ui.toast('You take a set of clean sheets, towels and a gown.'); } },
     ];
     for (const f of fixed) {
+      if (f.available === false) continue;
       const d = dist(player, f.pos);
       if (d < 1.6) list.push({ ...f, d, kind: 'tap' });
     }
@@ -557,7 +614,8 @@ export function createGame({ scene, map, ui, input, player, env }) {
       overwhelmed: ['"Sorry — I\'ve got four people to get up and nobody to help."', '"I haven\'t sat down since seven."', '"Is it always this short-staffed here?"'],
       helpful: ['"Morning. Bed 1-3 is a bit chesty, I\'m keeping an eye."', '"Shout if you need a second pair of hands."', '"Some of the others… never mind."'],
     }[n.disposition];
-    ui.dialogue(n.name, `${pick(lines)}<br><small>Assigned: ${n.assigned.map((a) => esc(map.roomById[a].name)).join(', ') || 'floating'} · Trust ${Math.round(n.trust)}</small>`, [
+    const confiding = n.disposition === 'harmful' && n.witnessedHarm >= 3 ? '<br>"You understand us now. We sign the charts from here. Nobody checks."' : '';
+    ui.dialogue(n.name, `${pick(lines)}${confiding}<br><small>Assigned: ${n.assigned.map((a) => esc(map.roomById[a].name)).join(', ') || 'floating'} · Trust ${Math.round(n.trust)}</small>`, [
       ...game.helpOption(n),
       { label: 'Leave', fn: () => ui.closePanel() },
     ]);
@@ -639,7 +697,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
       }
       r.mesh.visible = near;
       if (!near) continue;
-      if (r.mode === 'wander') {
+      if (r.mode === 'wander' && !r.playerRestrained && !(r.sedatedUntil > s.now)) {
         if (!r.target || dist(r.pos, r.target) < 0.2) { r.target = randomIn(map.roomById[r.area], 1.2); r.pause = rnd(2, 8); }
         if (r.pause > 0) r.pause -= sdt;
         else {
@@ -676,6 +734,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
 
     current = holding ? holding.it : ui.panelOpen ? null : interactables();
     ui.setInteract(current?.label ?? '');
+    ui.setResidentAvailable(!ui.panelOpen && !holding && !s.paused && s.residents.some((r) => r.alive && dist(player, r.pos) <= 2.3));
 
     const shift = SHIFTS[s.shiftIdx];
     const present = s.onShift.filter((n) => !n.arriveAt || s.now >= n.arriveAt).length + 1;
@@ -718,6 +777,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
 
   // ---------- case wiring ----------
   const case1 = createCase1({ s, game, ui, map, scene, esc, fmtTime, clamp, dist, bedSide, spawnBell, makeRestraintProps, makeUrineBag, nurseGoto });
+  const harm = createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1 });
 
   game.start = () => {
     setupNurses();
