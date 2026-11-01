@@ -4,6 +4,8 @@ A grounded psychological-horror nursing-home simulator, playable in the browser.
 
 > Content note: the game depicts elder neglect, restraint misuse and death.
 
+**Language:** EN / 繁體中文 toggle on the title and pause screens; remembered locally. Override with `?lang=en` or `?lang=zh` (combine other options with `&lang=zh`).
+
 **▶ Play online:** https://drelingp.github.io/Ping_Fai_OAH/ (every push to `master` deploys automatically via GitHub Pages)
 
 ## Run

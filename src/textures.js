@@ -1,5 +1,6 @@
 // Procedural canvas textures (no downloads): vinyl tiles, wood planks, grass, painted walls.
 import * as THREE from 'three';
+import { translate, onLangChange, CJK_FONT } from './i18n.js';
 
 let seed = 7;
 const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -112,14 +113,21 @@ export const laminateTexture = () => canvasTex(256, 256, (g, w, h) => {
 });
 
 export function signTexture(text, { bg = '#23314d', fg = '#f4ead2', w = 512, h = 128 } = {}) {
-  return canvasTex(w, h, (g) => {
+  const draw = (g) => {
     g.fillStyle = bg; g.fillRect(0, 0, w, h);
     g.strokeStyle = fg; g.lineWidth = 6; g.strokeRect(8, 8, w - 16, h - 16);
     g.fillStyle = fg;
-    g.font = `bold ${Math.floor(h * 0.42)}px system-ui, sans-serif`;
+    g.font = `bold ${Math.floor(h * 0.42)}px ${CJK_FONT}`;
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText(text, w / 2, h / 2 + 2);
-  }, { repeat: false });
+    g.fillText(translate(text), w / 2, h / 2 + 2, w - 32);
+  };
+  const texture = canvasTex(w, h, draw, { repeat: false });
+  const redraw = () => { draw(texture.image.getContext('2d')); texture.needsUpdate = true; };
+  const unsubscribe = onLangChange(redraw);
+  texture.addEventListener('dispose', unsubscribe);
+  document.fonts?.ready.then(redraw);
+  texture.userData.sourceText = text;
+  return texture;
 }
 
 // World-space planar UVs (metres / size) for floors.

@@ -13,6 +13,10 @@ import { makePlayer } from './people.js';
 import { createGame } from './game.js';
 import { loadAssets, updateCharacters } from './assets.js';
 import { DIFFICULTY, DEFAULT_DIFFICULTY } from './data.js';
+import { localize, bindLanguageButtons, translate, onLangChange, t } from './i18n.js';
+
+localize();
+bindLanguageButtons();
 
 // ---------- quality tiers ----------
 // high: soft shadows, ambient occlusion, bloom, MSAA · medium: shadows + bloom · low: no post-processing.
@@ -152,15 +156,17 @@ addEventListener('resize', resize);
 
 // ---------- loading ----------
 const startBtn = document.getElementById('start');
-const startLabel = startBtn.textContent;
+const startLabel = 'Begin AM shift — 07:00';
+let loadingLabel = 'Loading ward… 0%';
+onLangChange(() => { startBtn.textContent = translate(startBtn.disabled ? loadingLabel : startLabel); });
 startBtn.disabled = true;
-startBtn.textContent = 'Loading ward… 0%';
+startBtn.textContent = translate(loadingLabel);
 try {
-  await loadAssets((p) => { startBtn.textContent = `Loading ward… ${Math.round(p * 100)}%`; });
+  await loadAssets((p) => { loadingLabel = `Loading ward… ${Math.round(p * 100)}%`; startBtn.textContent = translate(loadingLabel); });
 } catch (error) {
   console.error('Unable to load ward assets', error);
   startBtn.disabled = false;
-  startBtn.textContent = 'Ward assets failed to load — tap to retry';
+  startBtn.textContent = translate('Ward assets failed to load — tap to retry');
   startBtn.addEventListener('click', () => location.reload());
   throw error;
 }
@@ -279,14 +285,15 @@ const diffBtns = [...document.querySelectorAll('.difficulty .diff')];
 const setDifficulty = (d, save) => {
   difficulty = d;
   for (const b of diffBtns) b.setAttribute('aria-checked', String(b.dataset.d === d));
-  document.getElementById('diff-note').textContent = `A new call bell about every ${DIFFICULTY[d].bellEvery} min`;
+  document.getElementById('diff-note').textContent = t('difficulty.pacing', { count: DIFFICULTY[d].bellEvery });
   if (save) localStorage.setItem('nw-difficulty', d);
 };
 for (const b of diffBtns) b.addEventListener('click', () => setDifficulty(b.dataset.d, true));
 setDifficulty(difficulty, false);
+onLangChange(() => setDifficulty(difficulty, false));
 
 startBtn.disabled = false;
-startBtn.textContent = startLabel;
+startBtn.textContent = translate(startLabel);
 startBtn.addEventListener('click', () => {
   document.getElementById('title').classList.add('hide');
   game.state.difficulty = difficulty;

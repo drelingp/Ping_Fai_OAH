@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { gesture } from './assets.js';
 import { makeRestraintProps, updateRestraintProps } from './people.js';
+import { translate } from './i18n.js';
 
 const ACTIONS = [
   { id: 'restrain', label: 'Apply restraint without cause', cost: 15 },
@@ -204,10 +205,10 @@ export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1
           ui.dialogue('Unauthorised restraint', 'This is fictional misconduct, not care. It harms the resident and costs 8 score points. Hold the button for 1.5 seconds to commit it.', [], '<button class="opt danger" id="harm-hold">Hold to apply restraint</button>');
           const button = document.getElementById('harm-hold');
           let timer = null;
-          const cancel = () => { clearTimeout(timer); timer = null; button.textContent = 'Hold to apply restraint'; };
+          const cancel = () => { clearTimeout(timer); timer = null; button.textContent = translate('Hold to apply restraint'); };
           const begin = () => {
             if (timer !== null) return;
-            button.textContent = 'Applying restraint…';
+            button.textContent = translate('Applying restraint…');
             timer = setTimeout(() => {
               timer = null;
               if (ui.panelOpen && button.isConnected) act(r, action);

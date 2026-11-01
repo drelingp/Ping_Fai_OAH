@@ -11,6 +11,7 @@ import { gesture } from './assets.js';
 import { resolveCollisions } from './map.js';
 import { createCase1 } from './case1.js';
 import { esc, fmtTime } from './ui.js';
+import { languageButtons, t, translate } from './i18n.js';
 
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -305,7 +306,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     if (by === 'player') {
       s.stats.bellsYou++;
       const owner = s.onShift.find((n) => n.assigned.includes(b.res.bed.room));
-      if (b.forNurse) { b.forNurse.trust = clamp(b.forNurse.trust + 12, 0, 100); colleague.rewardHelp(b.forNurse); ui.toast(`${b.forNurse.name.split(' ').slice(1, 2)} noticed you took that on. (+trust, colleague bonus)`); }
+      if (b.forNurse) { b.forNurse.trust = clamp(b.forNurse.trust + 12, 0, 100); colleague.rewardHelp(b.forNurse); ui.toast(`${b.forNurse.name} noticed you took that on. (+trust, colleague bonus)`); }
       else if (owner) owner.trust = clamp(owner.trust + 6, 0, 100);
     } else {
       s.stats.bellsStaff++;
@@ -412,7 +413,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     const short = expected - s.onShift.length;
     if (short <= 0) return done();
     const why = [sick ? `${sick.name} called in sick at ${fmtTime(s.now - 25)}.` : '', s.nurses.some((n) => n.suspended && n.shift === shift.id) ? 'A suspended nurse leaves a gap on this roster.' : ''].filter(Boolean).join(' ');
-    ui.dialogue('Staffing — phone at the nurse station', `${esc(why)}<br><br>You are <b>${short} nurse${short > 1 ? 's' : ''} short</b> for the ${shift.name}. What will you do?`, [
+    ui.dialogue('Staffing — phone at the nurse station', () => `${esc(translate(why))}<br><br>${t('staff.shortage', { count: short, shift: translate(shift.name) })}`, [
       {
         label: 'Call an agency relief nurse (arrives in ~45 min, reputation −1)', fn: () => {
           s.reputation -= 1;
@@ -483,7 +484,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     ui.openPanel(`
       <div class="doc">
         <div class="doc-head"><b>Shift Handover</b><span>${esc(prev.name)} → ${esc(SHIFTS[s.shiftIdx].name)} · Day ${s.day}</span></div>
-        <table class="doc-table"><tr><th>Bed</th><th>Resident</th><th>Notes</th></tr>${rows}</table>
+        <table class="doc-table handover-table"><tr><th>Bed</th><th>Resident</th><th>Notes</th></tr>${rows}</table>
         ${s.overnight.length ? `<p class="hand">Overnight: ${s.overnight.map(esc).join(' ')}</p>` : ''}
         <h4>Allocation</h4><ul>${alloc || '<li>No other staff on floor.</li>'}<li>You (Shift In-Charge): Single Rooms, float, call bells</li></ul>
         <p class="doc-note">Compare what's written with what you actually find on your rounds.</p>
@@ -687,8 +688,8 @@ export function createGame({ scene, map, ui, input, player, env }) {
         ui.closePanel();
         if (!cands.length) { ui.toast(`"Thanks, but I'm alright for now."`); return; }
         const r = pick(cands);
-        const b = spawnBell(r, `Repositioning & pad change (asked by ${n.name.split(' ')[1]})`, false, { forNurse: n });
-        if (b) { s.waypoint = { x: r.bed.x, z: r.bed.z, label: r.name, bell: b }; ui.toast(`"Bed ${r.bed.id}, ${r.name}. Thank you."`); }
+        const b = spawnBell(r, `Repositioning & pad change (asked by ${n.name})`, false, { forNurse: n });
+        if (b) { s.waypoint = { x: r.bed.x, z: r.bed.z, label: r.name, bell: b }; ui.toast({ key: 'dialogue.helpBed', vars: { bed: r.bed.id, name: r.name } }); }
       },
     }];
   };
@@ -812,8 +813,8 @@ export function createGame({ scene, map, ui, input, player, env }) {
     const present = s.onShift.filter((n) => !offFloor(n, s.now)).length + 1;
     ui.setHud({
       time: fmtTime(s.now),
-      shift: `${shift.name} ${fmtTime(shift.start)}–${fmtTime(shift.end)} · Day ${s.day} · ${DIFFICULTY[s.difficulty]?.label ?? ''}${scale < 1 && scale > 0 ? ' · time slowed' : ''}`,
-      staff: `Staff on floor ${present}/${shift.staffTotal}${s.onShift.some((n) => n.arriveAt && s.now < n.arriveAt) ? ' (relief en route)' : ''}`,
+      shift: { key: 'hud.shift', vars: { shift: shift.name, start: fmtTime(shift.start), end: fmtTime(shift.end), day: s.day, difficulty: DIFFICULTY[s.difficulty]?.label ?? '', slow: scale < 1 && scale > 0 ? ' · time slowed' : '' } },
+      staff: { key: 'hud.staff', vars: { present, total: shift.staffTotal, relief: s.onShift.some((n) => n.arriveAt && s.now < n.arriveAt) ? ' (relief en route)' : '' } },
       rep: s.reputation, susp: s.suspicion,
     });
     ui.setObjective(case1.objective() ?? 'Keep residents safe: do rounds, answer call bells, and watch your staff.');
@@ -829,6 +830,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     ui.openPanel(`
       <div class="dlg">
         <div class="dlg-speaker">Paused</div>
+        ${languageButtons()}
         <div class="dlg-text">
           <b>Move</b> WASD / arrows or left-thumb stick · <b>Run</b> Shift or push the stick fully<br>
           <b>Look</b> drag on the screen · <b>Zoom</b> mouse wheel<br>

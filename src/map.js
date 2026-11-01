@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { ROOMS, DOORS, SEATS, WALL_H, WALL_T } from './data.js';
 import { tileTexture, woodTexture, grassTexture, pavingTexture, wallTexture, planarUV, wallUV } from './textures.js';
 import { decorate, STATION } from './decor.js';
+import { translate, onLangChange, CJK_FONT } from './i18n.js';
 
 const EPS = 1e-3;
 
@@ -40,14 +41,21 @@ function makeLabel(text, size = 1) {
   const c = document.createElement('canvas');
   c.width = 512; c.height = 96;
   const g = c.getContext('2d');
-  g.fillStyle = 'rgba(0,0,0,0)';
-  g.fillRect(0, 0, 512, 96);
-  g.font = 'bold 54px system-ui, sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillStyle = 'rgba(40,36,32,0.55)';
-  g.fillText(text, 256, 50);
   const tex = new THREE.CanvasTexture(c);
+  const redraw = () => {
+    g.clearRect(0, 0, 512, 96);
+    g.font = `bold 54px ${CJK_FONT}`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillStyle = 'rgba(40,36,32,0.55)';
+    g.fillText(translate(text), 256, 50, 500);
+    tex.needsUpdate = true;
+  };
+  redraw();
+  const unsubscribe = onLangChange(redraw);
+  tex.addEventListener('dispose', unsubscribe);
+  document.fonts?.ready.then(redraw);
+  tex.userData.sourceText = text;
   tex.colorSpace = THREE.SRGBColorSpace;
   const m = new THREE.Mesh(
     new THREE.PlaneGeometry(4.2 * size, 0.8 * size),

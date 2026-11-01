@@ -71,7 +71,7 @@ export function createCase1(ctx) {
     ui.openPanel(`
       <div class="doc">
         <div class="doc-head"><b>Shift Handover</b><span>Night → AM shift · Day 1 · written 06:45</span></div>
-        <table class="doc-table">
+        <table class="doc-table handover-table">
           <tr><th>Bed</th><th>Resident</th><th>Notes</th></tr>
           ${others.slice(0, 2).map((r, i) => `<tr><td>${esc(r.bed.id)}</td><td>${esc(r.name)}</td><td class="hand">${lines[i]}</td></tr>`).join('')}
           <tr class="hl"><td>4-2</td><td>Mr. Chan Kwok-wing</td><td class="hand">Restless early night. Wrist restraint (Dr. order) released &amp; checked 23:00 / 01:00 / 03:00 / 05:00. Bathed 05:30. Catheter bag emptied 06:00 (600 ml). Settled, comfortable.</td></tr>
