@@ -183,14 +183,11 @@ export function decorate(scene, { colliders, beds, seats }) {
   stationSign.position.set(13.85, 2.3, 28.25);
   stationSign.rotation.y = -PI / 2;
   scene.add(stationSign);
-  // Phone, file trays and a medicine trolley against the counter (clear of the entry).
+  // Phone and file trays (the movable medicine trolley is in the Medicine Room).
   box(0.2, 0.04, 0.14, 15.4, 1.05, 29.85, std(0x22272c));
   box(0.22, 0.05, 0.05, 15.4, 1.1, 29.85, std(0x161a1e));
   box(0.3, 0.04, 0.23, 14.15, 1.05, 29.15, std(0x778ba0));
   box(0.26, 0.02, 0.19, 14.15, 1.08, 29.15, std(0xf0eee7));
-  box(0.6, 0.7, 0.42, 16.0, 0.35, 29.3, std(0xb9cbd3));
-  box(0.62, 0.045, 0.44, 16.0, 0.72, 29.3, std(0xe8ecec));
-  sign('MEDICINE', 16.0, 0.5, 29.07, PI, 0.4, 0.14);
   sign('ROOM ALLOCATION', 16.42, 2.15, 28.25, -PI / 2, 1.25, 0.35);
   place('furn:lampRoundTable', 16.65, 29.8, PI, [0.2, 0.45, 0.24], { y: 1.03 });
 

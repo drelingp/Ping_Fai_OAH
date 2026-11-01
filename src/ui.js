@@ -52,6 +52,19 @@ export function createUI() {
     repEl.textContent = `Reputation ${Math.round(rep)} · Staff suspicion ${Math.round(susp)}`;
   };
   ui.setObjective = (t) => { if (objective.textContent !== t) objective.textContent = t; };
+  const taskRows = $('#task-rows'), taskCount = $('#task-count');
+  let lastTasks = '';
+  taskRows.addEventListener('click', (e) => {
+    const row = e.target.closest('[data-round]');
+    if (row) ui.onTaskTap?.(row.dataset.round);
+  });
+  ui.renderTasks = (rows) => {
+    const key = JSON.stringify(rows);
+    if (key === lastTasks) return;
+    lastTasks = key;
+    taskCount.textContent = rows.length;
+    taskRows.innerHTML = rows.map((row) => `<button data-round="${esc(row.id)}"><b>${esc(row.label)}</b><span>${row.done}/${row.total}${row.unsafe ? ' · ' + row.unsafe + ' unsafe' : ''}</span><small>${esc(row.due)}</small></button>`).join('') || '<small>No active rounds. Your allocation: Single Rooms.</small>';
+  };
 
   // Boxes are kept and patched in place so nothing re-animates every game minute.
   // A box blinks a few times only when it first appears or turns urgent.
@@ -155,7 +168,7 @@ export function createUI() {
         ${extra}
         <div class="dlg-opts">${options.map((o, i) => `<button class="opt ${o.cls || ''}" data-i="${i}" ${o.disabled ? 'disabled' : ''}>${esc(o.label)}</button>`).join('')}</div>
       </div>`, { cls: 'dialogue', ...panelOpts });
-    body.querySelectorAll('.opt').forEach((b) => b.addEventListener('click', () => options[Number(b.dataset.i)].fn()));
+    body.querySelectorAll('.dlg-opts .opt[data-i]').forEach((b) => b.addEventListener('click', () => options[Number(b.dataset.i)].fn()));
   };
   ui.bind = (sel, fn) => panelBody.querySelectorAll(sel).forEach((el) => el.addEventListener('click', () => fn(el)));
 

@@ -1,6 +1,7 @@
 // Fictional misconduct choices and their lasting consequences; no real medication details.
 import * as THREE from 'three';
 import { gesture } from './assets.js';
+import { makeRestraintProps, updateRestraintProps } from './people.js';
 
 const ACTIONS = [
   { id: 'restrain', label: 'Apply restraint without cause', cost: 15 },
@@ -45,7 +46,9 @@ export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1
     if (id === 'restrain') return !r.playerRestrained && !s.escort;
     if (id === 'silence') return s.bells.some((b) => b.res === r);
     if (id === 'withhold') return !(r.withholdUntil > s.now);
-    if (id === 'sedate') return !(r.sedatedUntil > s.now) && (s.medicineRound || map.inStation(s.player));
+    if (id === 'sedate') return !(r.sedatedUntil > s.now) && (s.trolleys
+      ? s.pushingTrolley?.kind === 'med'
+      : s.medicineRound || map.inStation(s.player));
     return true;
   }
   function release(r) {
@@ -61,6 +64,13 @@ export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1
     ui.closePanel();
   }
   function restrainVisual(r) {
+    r.restrainedAt = s.now;
+    if (r.mode === 'bed' && r.bed) {
+      const props = makeRestraintProps(r.bed, r.mesh);
+      r.mesh.parent?.add(props);
+      r.restraintVisual = props;
+      return;
+    }
     const inner = r.mesh.userData.anim?.inner;
     if (!inner) return;
     const g = new THREE.Group();
@@ -78,10 +88,10 @@ export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1
     r.mesh.add(g);
     r.restraintVisual = g;
   }
-  function act(r, action) {
-    if (!valid(r, action.id)) {
+  function commit(r, action, effect, validate = () => valid(r, action.id)) {
+    if (!valid(r, action.id) || !validate()) {
       ui.toast('This action is unavailable. Move beside a living resident and check their current needs.');
-      return;
+      return false;
     }
     r.wellbeing = clamp(r.wellbeing - action.cost, 0, 100);
     r.fearOf = 'player';
@@ -94,6 +104,16 @@ export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1
     }
     record(`Your conduct: ${action.label} — ${r.name}. Score −8.`);
     case1.onPlayerHarm(r);
+    effect?.();
+    witnesses(r);
+    ui.closePanel();
+    ui.toast(`Your conduct: ${action.label}. Shift score −8; resident safety worsened.`, 5000);
+    return true;
+  }
+  function act(r, action) {
+    return commit(r, action, () => performAction(r, action));
+  }
+  function performAction(r, action) {
     switch (action.id) {
       case 'restrain':
         // Committed here (penalty above); the restraint itself is applied at the bedside.
@@ -150,8 +170,10 @@ export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1
         }
         break;
     }
+  }
+  function witnesses(r) {
     for (const n of s.onShift) {
-      if ((n.arriveAt && s.now < n.arriveAt) || !nearby(n, r)) continue;
+      if (n.suspended || n.offFloorUntil > s.now || n.breakUntil > s.now || (n.arriveAt && s.now < n.arriveAt) || !nearby(n, r)) continue;
       if (n.disposition === 'harmful') {
         n.trust = clamp(n.trust + 5, 0, 100);
         n.witnessedHarm = (n.witnessedHarm ?? 0) + 1;
@@ -168,8 +190,6 @@ export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1
       other.wellbeing = clamp(other.wellbeing - 2, 0, 100);
       if (Math.random() < 0.25) s.conductReports.push({ name: other.name, day: s.day, shift: s.shiftIdx });
     }
-    ui.closePanel();
-    ui.toast(`Your conduct: ${action.label}. Shift score −8; resident safety worsened.`, 5000);
   }
   function options(r) {
     if (!r.alive || !s.running || s.paused || dist(s.player, r.pos) > 2.3) return [];
@@ -222,5 +242,11 @@ export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1
     r.restraintVisual?.removeFromParent();
     r.restraintVisual = null;
   }
-  return { options, status, minute, nextShift, remove };
+  function frame() {
+    for (const r of s.residents) if (r.playerRestrained && r.restraintVisual) {
+      r.restraintVisual.visible = r.mesh.visible;
+      updateRestraintProps(r.restraintVisual, s.now - r.restrainedAt);
+    }
+  }
+  return { options, status, minute, nextShift, remove, commit, report, frame, act, release };
 }

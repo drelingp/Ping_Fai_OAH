@@ -29,6 +29,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @keyframes slide { from { transform: translateY(-8px); opacity: 0; } }
 
 #minimap { position: absolute; top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); width: 120px; height: 182px; background: rgba(8,9,12,.75); border: 1px solid rgba(255,255,255,.15); border-radius: 10px; cursor: pointer; }
+#tasks { position: absolute; right: 10px; top: 202px; width: 220px; font-size: 12px; }
+#tasks summary { padding: 7px 9px; cursor: pointer; }
+#task-count { float: right; color: #ffd75a; }
+#task-rows { max-height: 180px; overflow-y: auto; padding: 0 5px 5px; }
+#task-rows > small { display: block; padding: 5px; opacity: .75; }
+#task-rows button { display: grid; grid-template-columns: 1fr auto; gap: 2px 4px; width: 100%; text-align: left; font-size: 11px; padding: 6px; background: none; border: 0; border-top: 1px solid rgba(255,255,255,.12); }
+#task-rows button small { grid-column: 1 / 3; opacity: .7; }
 
 #actions { position: absolute; right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto auto; gap: 8px; justify-items: end; align-items: end; }
 #btn-interact { grid-column: 1 / 3; width: 84px; height: 84px; border-radius: 50%; border: 2px solid rgba(255,215,90,.9); background: rgba(255,215,90,.22); font-size: 22px; font-weight: 800; touch-action: none; transition: opacity .15s; }
@@ -178,4 +185,8 @@ body.has-stick #keys { display: none; }
   .banner-more { font-size: 10px; text-align: left; padding-left: 4px; }
   #clock { font-size: 22px; }
   #minimap { width: 100px; height: 152px; }
+  #tasks { top: 202px; right: 10px; width: 142px; font-size: 11px; }
+  #tasks[open] { width: 190px; }
+  #task-rows { max-height: 144px; }
+  #task-rows button { font-size: 10px; }
 }

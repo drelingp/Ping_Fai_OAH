@@ -10,7 +10,7 @@ export function createEscort({ s, map, ui, dist, rnd, bedSide, placeInBed, nurse
 
   function availableHelper(near) {
     return s.onShift
-      .filter((n) => (!n.arriveAt || s.now >= n.arriveAt) && !n.bell && !n.escort && !n.suspended)
+      .filter((n) => (!n.arriveAt || s.now >= n.arriveAt) && !n.bell && !n.routineJob && !n.escort && !n.suspended && !n.refusesHelp && !(n.offFloorUntil > s.now) && !(n.breakUntil > s.now))
       .map((n) => ({ n, d: dist(n.pos, near) }))
       .filter((x) => x.d < 40)
       .sort((a, b) => a.d - b.d)[0]?.n ?? null;

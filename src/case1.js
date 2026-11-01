@@ -1,4 +1,5 @@
 // Case 1 — "Bed 4-2": a resident left restrained all night, care charted but never given.
+import { updateRestraintProps } from './people.js';
 
 const ORDER = ['handover', 'rounds', 'discovered', 'confronted', 'decided'];
 
@@ -50,8 +51,7 @@ export function createCase1(ctx) {
     c.lee = s.residents.find((r) => r.name === 'Mr. Lee Chi-ming');
     if (!c.care.washed || !c.care.bag) c.chan.hygiene = { body: !c.care.washed, bedding: !c.care.washed, bag: !c.care.bag };
     const b = c.chan.bed;
-    c.props = makeRestraintProps();
-    c.props.position.set(b.x, 0, b.z + b.headDir * 0.05);
+    c.props = makeRestraintProps(b, c.chan.mesh);
     c.bag = makeUrineBag();
     c.bag.position.set(b.x - 0.56, 0.38, b.z);
     scene.add(c.props, c.bag);
@@ -191,6 +191,7 @@ export function createCase1(ctx) {
         ui.dialogue(n.name, `"Busy morning."<br><small>Trust ${Math.round(n.trust)}</small>`, [
           { label: 'Speak privately about Bed 4-2', fn: () => privateTalk(n) },
           ...game.helpOption(n),
+          ...game.colleagueOptions(n),
           { label: 'Leave', fn: () => ui.closePanel() },
         ]);
         return true;
@@ -200,7 +201,7 @@ export function createCase1(ctx) {
   }
   function talkKo(n) {
     if (!at('discovered')) {
-      ui.dialogue(n.name, `"Morning. Yip said it was a quiet night."<br><small>Assigned: Bedroom 4, Bedroom 5</small>`, [...game.helpOption(n), { label: 'Leave', fn: () => ui.closePanel() }]);
+      ui.dialogue(n.name, `"Morning. Yip said it was a quiet night."<br><small>Assigned: Bedroom 4, Bedroom 5</small>`, [...game.helpOption(n), ...game.colleagueOptions(n), { label: 'Leave', fn: () => ui.closePanel() }]);
       return;
     }
     if (c.stage === 'discovered') {
@@ -219,12 +220,13 @@ export function createCase1(ctx) {
             },
           ]),
         },
+        ...game.colleagueOptions(n),
         { label: 'Leave', fn: () => ui.closePanel() },
       ]);
       return;
     }
     const line = c.result?.option === 'supervise' ? '"Fine. I\'ll do it by the book. Happy?"' : c.result?.option === 'none' ? '"Told you it was nothing."' : '"I\'ve said what I said. Check the records if you don\'t believe me."';
-    ui.dialogue(n.name, line, [...game.helpOption(n), { label: 'Leave', fn: () => ui.closePanel() }]);
+    ui.dialogue(n.name, line, [...game.helpOption(n), ...game.colleagueOptions(n), { label: 'Leave', fn: () => ui.closePanel() }]);
   }
   function privateTalk(n) {
     const other = s.onShift.find((o) => o !== n && o.mesh.visible && dist(o.pos, n.pos) < 7);
@@ -251,6 +253,7 @@ export function createCase1(ctx) {
   function records() {
     ensureRefs();
     const opts = [];
+    opts.push({ label: 'Read routine-care records', fn: () => game.routine.records() });
     if (s.day === 1 && s.shiftIdx === 0) opts.push({ label: 'Re-read the night handover', fn: () => showHandoverDoc(null) });
     if (at('confronted') && !c.evidence.records) opts.push({
       label: "Pull Mr. Chan's restraint & ADL charts (10 min)", cls: 'primary', fn: () => {
@@ -435,6 +438,7 @@ export function createCase1(ctx) {
       const vis = c.chan.mesh.visible;
       c.props.visible = vis && !c.care.released;
       c.bag.visible = vis && !c.care.bag;
+      if (!c.care.released) updateRestraintProps(c.props, s.now - ((s.day - 1) * 1440 + 420) + 590);
     }
   }
 
@@ -446,5 +450,6 @@ export function createCase1(ctx) {
     s.stats.log.push('Harming a case resident undermined your investigation: accuracy −10.');
   }
 
-  return { residents, handover, minute, onDeath, emergency, residentAction, nurseTalk, records, office, caseFile, objective, shiftScore, frame, onPlayerHarm };
+  const evidenceFor = (n) => n.id === 'ko' ? !!c.evidence.obs && strength() > 0 : n.id === 'yip' && !!c.evidence.records;
+  return { residents, handover, minute, onDeath, emergency, residentAction, nurseTalk, records, office, caseFile, objective, shiftScore, frame, onPlayerHarm, evidenceFor, state: c };
 }

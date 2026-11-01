@@ -3,6 +3,9 @@ import { SHIFTS, NURSES, SURNAMES, MALE, FEMALE, PERSONALITIES, ROUTINES, NEEDS,
 import { makeResident, makeNurse, makeRestraintProps, makeUrineBag, pose } from './people.js';
 import { createHarm } from './harm.js';
 import { createEscort } from './escort.js';
+import { createTrolleys } from './trolley.js';
+import { createRoutine } from './routine.js';
+import { createColleague, offFloor } from './colleague.js';
 import { createOdour, dirty, hygieneText } from './odour.js';
 import { gesture } from './assets.js';
 import { resolveCollisions } from './map.js';
@@ -90,10 +93,10 @@ export function createGame({ scene, map, ui, input, player, env }) {
       b.occupant = r; r.bed = b;
       s.residents.push(r);
     }
-    const singles = Math.floor(rnd(0, 3));
+    const singles = 4;
     for (let i = 0; i < singles; i++) {
       s.residents.push(newResident({
-        single: i === 0 ? 'behaviour' : 'isolation', mobility: i === 0 ? 'walking' : 'bedbound',
+        single: i === 0 ? 'behaviour' : 'isolation', mobility: i % 2 === 0 ? 'walking' : 'bedbound',
         note: i === 0 ? 'Placed in Single Room after hitting a roommate. Doctor review due Friday; must not be locked in.' : 'Infection isolation (suspected norovirus). Gloves & gown at door.',
       }));
     }
@@ -226,6 +229,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     n.path = pts;
   }
   function nurseNextTask(n) {
+    if (routine.npcNext(n)) return;
     const helpful = n.disposition !== 'harmful';
     const roll = Math.random();
     if (!n.assigned.length || (!helpful && roll < 0.55) || (helpful && roll < 0.25)) {
@@ -244,7 +248,16 @@ export function createGame({ scene, map, ui, input, player, env }) {
   function bedSide(bed) { return { x: bed.x, z: bed.z - bed.headDir * 1.6 }; }
 
   function updateNurse(n, dt) {
-    if (n.arriveAt && s.now < n.arriveAt) { n.mesh.visible = false; return; }
+    if (offFloor(n, s.now)) {
+      if (n.departingUntil > performance.now()) {
+        n.pos.x += Math.sin(n.mesh.rotation.y) * 0.6 * dt;
+        n.pos.z += Math.cos(n.mesh.rotation.y) * 0.6 * dt;
+        resolveCollisions(n.pos, 0.3, map.colliders);
+        n.mesh.position.set(n.pos.x, 0, n.pos.z);
+      }
+      n.mesh.visible = false;
+      return;
+    }
     if (n.escort && !n.path.length) return;
     if (n.path.length) {
       const t = n.path[0];
@@ -272,6 +285,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
       }
       return;
     }
+    if (routine.npcUpdate(n, dt)) return;
     n.wait -= dt;
     if (n.wait <= 0) nurseNextTask(n);
   }
@@ -291,7 +305,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     if (by === 'player') {
       s.stats.bellsYou++;
       const owner = s.onShift.find((n) => n.assigned.includes(b.res.bed.room));
-      if (b.forNurse) { b.forNurse.trust = clamp(b.forNurse.trust + 12, 0, 100); ui.toast(`${b.forNurse.name.split(' ').slice(1, 2)} noticed you took that on. (+trust)`); }
+      if (b.forNurse) { b.forNurse.trust = clamp(b.forNurse.trust + 12, 0, 100); colleague.rewardHelp(b.forNurse); ui.toast(`${b.forNurse.name.split(' ').slice(1, 2)} noticed you took that on. (+trust, colleague bonus)`); }
       else if (owner) owner.trust = clamp(owner.trust + 6, 0, 100);
     } else {
       s.stats.bellsStaff++;
@@ -309,7 +323,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     }
     const shift = SHIFTS[s.shiftIdx];
     const expected = shift.staffTotal - 1;
-    const present = s.onShift.filter((n) => !n.arriveAt || s.now >= n.arriveAt).length;
+    const present = s.onShift.filter((n) => !offFloor(n, s.now)).length;
     const factor = clamp(present / expected, 0.4, 1);
     if (Math.random() < bellChance(s.difficulty, shift.id, factor, s.bells.length)) {
       const cands = s.residents.filter((r) => r.alive && r.mode === 'bed' && !r.case && !(r.sedatedUntil > s.now) && !s.bells.some((b) => b.res === r));
@@ -334,7 +348,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
       // NPC nurses decide whether to answer — harmful staff mostly ignore bells
       if (!b.nurse && !b.forNurse && !b.caseBell) {
         for (const n of s.onShift) {
-          if (n.bell || n.escort || (n.arriveAt && s.now < n.arriveAt)) continue;
+          if (n.bell || n.escort || n.routineJob || offFloor(n, s.now)) continue;
           let p = { helpful: 0.09, overwhelmed: 0.05, harmful: 0.008 }[n.disposition];
           if (n.assigned.includes(b.res.bed.room)) p *= 2;
           if (n.supervised) p = Math.max(p, 0.04);
@@ -348,6 +362,8 @@ export function createGame({ scene, map, ui, input, player, env }) {
   // ---------- time ----------
   function minuteTick() {
     harm.minute(s.nextMinute);
+    routine.minute(s.nextMinute);
+    colleague.minute(s.nextMinute);
     bellMinute();
     case1.minute();
     for (const r of s.residents) {
@@ -432,10 +448,13 @@ export function createGame({ scene, map, ui, input, player, env }) {
     s.waypoint = null;
     s.medicineRound = false;
     s.stats = { bellsYou: 0, bellsStaff: 0, incidents: 0, deaths: 0, harm: 0, harmReports: 0, log: [], startRep: s.reputation, caseLine: null };
+    trolleys.reset();
+    colleague.reset();
+    routine.startShift();
     harm.nextShift();
     s.residents.forEach((r) => (r.lastSeen = null));
     applyRoutine();
-    s.nurses.forEach((n) => { n.mesh.visible = false; n.sick = false; n.bell = null; n.path = []; n.supervisedToday = false; });
+    s.nurses.forEach((n) => { n.mesh.visible = false; n.sick = false; n.bell = null; n.routineJob = null; n.path = []; n.supervisedToday = false; });
     s.nurses = s.nurses.filter((n) => !n.agency || (scene.remove(n.mesh), false));
     s.onShift = s.nurses.filter((n) => n.shift === shift.id && !n.suspended);
     const firstShift = s.day === 1 && shift.id === 'AM';
@@ -475,6 +494,8 @@ export function createGame({ scene, map, ui, input, player, env }) {
 
   function endShift() {
     escort.cancel('silent');
+    trolleys.park();
+    holding = null;
     s.running = false;
     ui.closePanel(true);
     ui.setHold(null);
@@ -484,7 +505,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     const C = clamp(100 * answered / Math.max(1, answered + s.stats.incidents * 2 + s.bells.length), 0, 100);
     const T = s.onShift.length ? s.onShift.reduce((a, n) => a + n.trust, 0) / s.onShift.length : 50;
     const inv = case1.shiftScore();
-    const score = clamp(0.35 * W + 0.25 * C + 0.2 * (inv ?? C) + 0.1 * T + 0.1 * (100 - s.suspicion) - s.stats.deaths * 10 - s.stats.harm * 8, 0, 100);
+    const score = clamp(0.35 * W + 0.25 * C + 0.2 * (inv ?? C) + 0.1 * T + 0.1 * (100 - s.suspicion) - s.stats.deaths * 10 - s.stats.harm * 8 + s.colleagueBonus - s.colleaguePenalty, 0, 100);
     const grade = score >= 85 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : score >= 40 ? 'D' : 'F';
     const notes = [];
     if (s.stats.bellsYou > s.stats.bellsStaff * 2) notes.push('You carried the floor yourself — residents were safer, but investigation time was lost.');
@@ -503,6 +524,8 @@ export function createGame({ scene, map, ui, input, player, env }) {
           <tr><td>Staff suspicion</td><td>${bar(s.suspicion)}</td></tr>
           <tr><td>Home reputation</td><td>${bar(s.reputation)} <small>(${s.reputation - s.stats.startRep >= 0 ? '+' : ''}${Math.round(s.reputation - s.stats.startRep)})</small></td></tr>
           <tr><td>Deaths</td><td>${s.stats.deaths}</td></tr>
+          <tr><td>Routine care</td><td>${s.stats.routine.done} done by you · ${s.stats.routine.npcDone} staff done · ${s.stats.routine.missed} missed · ${s.stats.routine.falseCharted} false-charted · ${s.stats.routine.harmed} unsafe</td></tr>
+          <tr><td>Colleague conduct</td><td>Bonus +${s.colleagueBonus} / 6 · penalty −${s.colleaguePenalty}</td></tr>
         </table>
         <h4>Your conduct</h4>
         <p>${s.stats.harm} harmful act(s) · score penalty −${s.stats.harm * 8} · ${s.stats.harmReports} witness report(s).
@@ -537,6 +560,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
         ${r.note ? `<div class="p-row story"><i>Note</i>${esc(r.note)}</div>` : ''}
         ${dirty(r) ? `<div class="p-row story"><i>Hygiene</i>${esc(hygieneText(r))} — odour noticeable</div>` : ''}
         ${harm.status(r).length ? `<div class="p-row story"><i>Your conduct</i>${esc(harm.status(r).join(' · '))}</div>` : ''}
+        ${routine.notes(r).length ? `<div class="p-row"><i>Care records</i>${routine.notes(r).map(esc).join('<br>')}</div>` : ''}
         <div class="p-row"><i>Last seen</i>${ls ? `${esc(ls.roomName)} at ${fmtTime(ls.t)}` : 'Not seen this shift'}</div>
       </div>`;
   }
@@ -556,9 +580,9 @@ export function createGame({ scene, map, ui, input, player, env }) {
         }
       },
     }] : [];
-    ui.dialogue('Resident profile', profileHtml(r), [...extraOpts, ...careOptions, ...harm.options(r), { label: 'Close', fn: () => ui.closePanel() }]);
+    ui.dialogue('Resident profile', profileHtml(r), [...extraOpts, ...careOptions, ...(near ? routine.options(r) : []), ...harm.options(r), { label: 'Close', fn: () => ui.closePanel() }]);
   };
-  game.residentOptions = (r) => harm.options(r);
+  game.residentOptions = (r) => [...routine.options(r), ...harm.options(r)];
   ui.onResident = () => {
     if (ui.panelOpen || !s.running || s.paused || holding || s.escort) return;
     const r = s.residents.filter((r) => r.alive && dist(player, r.pos) <= 2.3).sort((a, b) => dist(player, a.pos) - dist(player, b.pos))[0];
@@ -601,6 +625,8 @@ export function createGame({ scene, map, ui, input, player, env }) {
             ui.toast(`${r.name} is clean and dry. The smell fades.`);
           },
         });
+      } else if (routine.interaction(r)) {
+        list.push({ ...routine.interaction(r), d: d - 0.2, pos: p });
       } else {
         list.push({
           d, pos: p, kind: 'tap', label: `Talk to ${r.name}`,
@@ -621,13 +647,10 @@ export function createGame({ scene, map, ui, input, player, env }) {
     }
     const fixed = [
       { pos: map.station.records, available: map.inStation(player), label: 'Nurse station: records & handover', run: () => case1.records() },
-      { pos: { x: 16.0, z: 29.3 }, available: map.inStation(player), label: s.medicineRound ? 'Return medicine-round trolley' : 'Take medicine-round trolley', run: () => {
-        s.medicineRound = !s.medicineRound;
-        ui.toast(s.medicineRound ? 'Medicine round started. Unauthorised sedation is harmful, not care.' : 'Medicine-round trolley returned.');
-      } },
       { pos: { x: 40, z: 40.4 }, label: "Ward Manager's desk: CCTV & reports", run: () => case1.office() },
       { pos: { x: 19.6, z: 30.3 }, label: s.linen ? 'Linen trolley (you have clean linen)' : 'Take clean linen', run: () => { s.linen = true; ui.toast('You take a set of clean sheets, towels and a gown.'); } },
     ];
+    list.push(...trolleys.interactions());
     for (const f of fixed) {
       if (f.available === false) continue;
       const d = dist(player, f.pos);
@@ -648,15 +671,17 @@ export function createGame({ scene, map, ui, input, player, env }) {
     const confiding = n.disposition === 'harmful' && n.witnessedHarm >= 3 ? '<br>"You understand us now. We sign the charts from here. Nobody checks."' : '';
     ui.dialogue(n.name, `${pick(lines)}${confiding}<br><small>Assigned: ${n.assigned.map((a) => esc(map.roomById[a].name)).join(', ') || 'floating'} · Trust ${Math.round(n.trust)}</small>`, [
       ...game.helpOption(n),
+      ...colleague.options(n),
       { label: 'Leave', fn: () => ui.closePanel() },
     ]);
   }
   // Trust is earned through actions: take on a task in her area
   game.helpOption = (n) => {
-    if (s.now - n.lastHelp < 30) return [];
+    if (n.refusesHelp || offFloor(n, s.now) || s.now - n.lastHelp < 30 || !colleague.available(n)) return [];
     return [{
       label: 'Offer to take one of her residents',
       fn: () => {
+        if (!colleague.reserveHelp(n)) return;
         n.lastHelp = s.now;
         const cands = s.residents.filter((r) => r.alive && r.mode === 'bed' && n.assigned.includes(r.bed.room) && !r.case && !s.bells.some((b) => b.res === r));
         ui.closePanel();
@@ -669,7 +694,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
   };
 
   ui.onInteractDown = input.onInteractDown = () => {
-    if (ui.panelOpen || !s.running || !current) return;
+    if (ui.panelOpen || !s.running || s.paused || performance.now() < (s.staggerUntil ?? 0) || !current) return;
     if (current.kind === 'tap') current.run();
     else holding = { it: current, t: 0 };
   };
@@ -686,21 +711,28 @@ export function createGame({ scene, map, ui, input, player, env }) {
     tick(sdt);
     if (s.now >= s.shiftEnd) { endShift(); return; }
 
-    escort.update(sdt);
+    if (s.escort && s.pushingTrolley) trolleys.park();
+    if (performance.now() >= (s.staggerUntil ?? 0)) escort.update(sdt);
     // player movement
-    if (!ui.panelOpen && !holding && !s.paused && !s.escort) {
+    if (!ui.panelOpen && !holding && !s.paused && !s.escort && performance.now() >= (s.staggerUntil ?? 0)) {
       const mx = input.moveX, mz = input.moveZ;
       if (mx || mz) {
         const sin = Math.sin(camYaw), cos = Math.cos(camYaw);
         const wx = mx * cos + mz * sin, wz = -mx * sin + mz * cos;
-        const speed = input.fast ? 4.2 : 2.6;
+        const speed = s.pushingTrolley ? 1.45 : s.mealTray ? 2.1 : input.fast ? 4.2 : 2.6;
         const steps = Math.max(1, Math.ceil(speed * dt / 0.15));
         for (let i = 0; i < steps; i++) {
+          const before = { x: player.x, z: player.z, heading: player.heading };
+          player.heading = Math.atan2(wx, wz);
           player.x += wx * speed * dt / steps; player.z += wz * speed * dt / steps;
           resolveCollisions(player, 0.3, map.colliders);
+          if (s.pushingTrolley && !trolleys.follow()) {
+            Object.assign(player, before);
+            break;
+          }
         }
-        player.heading = Math.atan2(wx, wz);
         player.moving = true;
+        if (s.pushingTrolley && !player.mesh.userData.forceAnim) gesture(player.mesh, 'push', 1);
       } else player.moving = false;
       resolveCollisions(player, 0.3, map.colliders);
     } else player.moving = false;
@@ -718,8 +750,8 @@ export function createGame({ scene, map, ui, input, player, env }) {
       else if (holding.t >= holding.it.dur) {
         const it = holding.it;
         holding = null; ui.setHold(null);
-        tick(it.minutes);
-        it.run();
+        if (it.beforeTime) { it.run(); tick(it.minutes); }
+        else { tick(it.minutes); it.run(); }
       }
     }
 
@@ -755,27 +787,29 @@ export function createGame({ scene, map, ui, input, player, env }) {
     for (const n of s.onShift) {
       updateNurse(n, sdt);
       const d = dist(player, n.pos);
-      const arrived = !n.arriveAt || s.now >= n.arriveAt;
-      n.mesh.visible = arrived && d < 26;
+      const arrived = !offFloor(n, s.now);
+      n.mesh.visible = (arrived || n.departingUntil > performance.now()) && d < 26;
       const nroom = map.roomAt(n.pos.x, n.pos.z);
       n.visible = arrived && (d < 4 || (d < 12 && proom && nroom && proom.id === nroom.id));
     }
     case1.frame(dt);
+    harm.frame();
     odour.update(dt, s.residents, player);
 
     // waypoint maintenance
     if (s.waypoint) {
       if (s.waypoint.ref) { s.waypoint.x = s.waypoint.ref.pos.x; s.waypoint.z = s.waypoint.ref.pos.z; }
       if (s.waypoint.bell && !s.bells.includes(s.waypoint.bell)) s.waypoint = null;
+      else if (s.waypoint.routine && !s.rounds.some((round) => round.id === s.waypoint.routine && s.now < round.end)) s.waypoint = null;
       else if (!s.waypoint.ref && !s.waypoint.bell && dist(player, s.waypoint) < 2) s.waypoint = null;
     }
 
-    current = holding ? holding.it : ui.panelOpen ? null : interactables();
+    current = holding ? holding.it : ui.panelOpen || s.paused || performance.now() < (s.staggerUntil ?? 0) ? null : interactables();
     ui.setInteract(current?.label ?? '');
     ui.setResidentAvailable(!ui.panelOpen && !holding && !s.paused && !s.escort && s.residents.some((r) => r.alive && dist(player, r.pos) <= 2.3));
 
     const shift = SHIFTS[s.shiftIdx];
-    const present = s.onShift.filter((n) => !n.arriveAt || s.now >= n.arriveAt).length + 1;
+    const present = s.onShift.filter((n) => !offFloor(n, s.now)).length + 1;
     ui.setHud({
       time: fmtTime(s.now),
       shift: `${shift.name} ${fmtTime(shift.start)}–${fmtTime(shift.end)} · Day ${s.day} · ${DIFFICULTY[s.difficulty]?.label ?? ''}${scale < 1 && scale > 0 ? ' · time slowed' : ''}`,
@@ -784,6 +818,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     });
     ui.setObjective(case1.objective() ?? 'Keep residents safe: do rounds, answer call bells, and watch your staff.');
     ui.renderBanners(s.bells, s.now);
+    ui.renderTasks(routine.rows());
     ui.drawMaps(s);
   };
 
@@ -817,8 +852,18 @@ export function createGame({ scene, map, ui, input, player, env }) {
   const case1 = createCase1({ s, game, ui, map, scene, esc, fmtTime, clamp, dist, bedSide, spawnBell, makeRestraintProps, makeUrineBag, nurseGoto });
   const escort = createEscort({ s, map, ui, dist, rnd, bedSide, placeInBed, nurseGoto, resolveCollisions, gesture, pose, wanderAreas: WANDER_AREAS });
   const harm = createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1, escort });
+  const trolleys = createTrolleys({ s, scene, map, ui, dist, resolveCollisions });
+  const routine = createRoutine({ s, ui, dist, trolleys, harm, nurseGoto, bedSide });
+  const colleague = createColleague({ s, ui, dist, report: harm.report, advance: game.advance, evidenceFor: case1.evidenceFor, routine });
   const odour = createOdour(scene);
   game.escort = escort;
+  game.harm = harm;
+  game.routine = routine;
+  game.colleague = colleague;
+  game.trolleys = trolleys;
+  game.case1 = case1;
+  game.colleagueOptions = (n) => colleague.options(n);
+  ui.onTaskTap = (id) => routine.waypoint(id);
 
   game.start = () => {
     setupNurses();
@@ -828,5 +873,6 @@ export function createGame({ scene, map, ui, input, player, env }) {
   game.tmpV = tmpV;
   game.resolveBell = resolveBell;
   game.assignRooms = assignRooms;
+  game.interaction = () => current;
   return game;
 }
