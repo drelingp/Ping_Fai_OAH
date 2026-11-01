@@ -1,9 +1,11 @@
 import * as THREE from 'three';
-import { SHIFTS, NURSES, SURNAMES, MALE, FEMALE, PERSONALITIES, ROUTINES, NEEDS, BELL_NEEDS, WANDER_AREAS, DIFFICULTY, DEFAULT_DIFFICULTY, bellChance } from './data.js';
+import { SHIFTS, NURSES, SURNAMES, MALE, FEMALE, PERSONALITIES, ROUTINES, NEEDS, BELL_NEEDS, WANDER_AREAS, DIFFICULTY, DEFAULT_DIFFICULTY, GAME_MINUTES_PER_SECOND, bellChance } from './data.js';
 import { makeResident, makeNurse, makeRestraintProps, makeUrineBag, pose } from './people.js';
 import { createHarm } from './harm.js';
 import { createEscort } from './escort.js';
 import { createTrolleys } from './trolley.js';
+import { createChairs } from './chair.js';
+import { createDeathResolver, protectHealth } from './health.js';
 import { createRoutine } from './routine.js';
 import { createColleague, offFloor } from './colleague.js';
 import { createOdour, dirty, hygieneText } from './odour.js';
@@ -12,6 +14,7 @@ import { resolveCollisions } from './map.js';
 import { createCase1 } from './case1.js';
 import { esc, fmtTime } from './ui.js';
 import { languageButtons, t, translate } from './i18n.js';
+import { localPath } from './navigation.js';
 
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -45,6 +48,8 @@ export function createGame({ scene, map, ui, input, player, env }) {
   };
   const game = { state: s };
   let nextId = 1;
+  let chairs = null;
+  let deathResolver = { resolve: () => {} };
 
   // ---------- roster ----------
   function newResident(o = {}) {
@@ -55,6 +60,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
       id: nextId++, seed: Math.floor(Math.random() * 1e6), sex,
       name: o.name ?? `${sex === 'F' ? 'Mrs.' : 'Mr.'} ${surname} ${pick(sex === 'F' ? FEMALE : MALE)}`,
       age: o.age ?? Math.floor(rnd(68, 98)), mobility,
+      chairEligible: o.chairEligible ?? (mobility === 'wheelchair' && Math.random() < 0.55),
       personality: o.personality ?? pick(PERSONALITIES), routine: o.routine ?? pick(ROUTINES),
       needs: o.needs ?? [...NEEDS[mobility]].sort(() => Math.random() - 0.5).slice(0, 2 + Math.floor(Math.random() * 2)),
       wellbeing: o.wellbeing ?? rnd(55, 88), alive: true, bed: null, seat: null, mode: 'bed', area: null,
@@ -62,6 +68,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
       story: o.story ?? false, note: o.note ?? '', single: o.single ?? null, case: o.case ?? false, lastChat: -999,
       hygiene: { body: false, bedding: false, bag: false },
     };
+    protectHealth(r);
     r.mesh = makeResident(r);
     r.mesh.visible = false;
     scene.add(r.mesh);
@@ -77,12 +84,41 @@ export function createGame({ scene, map, ui, input, player, env }) {
     }
   }
   function removeResident(r) {
+    if (!r.alive) return false;
     harm.remove(r);
+    chairs?.remove(r);
+    if (s.escort?.r === r) escort.cancel('silent');
+    const heldAtResident = holding?.it?.pos && (holding.it.pos === r.pos ||
+      r.mode === 'bed' && holding.it.pos.x === r.bed?.x && holding.it.pos.z === r.bed?.z);
+    if (holding?.resident === r || holding?.it?.resident === r || heldAtResident) { holding = null; ui.setHold(null); }
+    for (const n of s.nurses) {
+      if (n.bell?.res === r) { n.bell = null; n.bellTimer = null; n.path = []; }
+      if (n.routineJob?.entry?.r === r) {
+        n.routineJob.entry.nurse = null; n.routineJob = null; n.path = [];
+      }
+      r.chairActivity = null;
+    }
     r.alive = false;
     if (r.bed) r.bed.occupant = null;
     if (r.seat) r.seat.occupant = null;
     scene.remove(r.mesh);
     s.bells = s.bells.filter((b) => b.res !== r);
+    if (s.waypoint?.ref === r || s.waypoint?.bell?.res === r) s.waypoint = null;
+    ui.setResidents(s.residents.filter((resident) => resident.alive).length);
+    return true;
+  }
+
+  function finishRun() {
+    if (s.ended || s.residents.some((r) => r.alive)) return;
+    s.ended = true;
+    s.running = false;
+    s.paused = false;
+    ui.dialogue(t('Game Over'), t('hud.gameOver'), [
+      { label: 'Restart run', cls: 'primary', fn: () => location.reload() },
+    ], '', { closable: false, terminal: true });
+  }
+  function resolveDeaths() {
+    deathResolver.resolve();
   }
 
   function buildRoster() {
@@ -104,6 +140,10 @@ export function createGame({ scene, map, ui, input, player, env }) {
     while (s.residents.length < n) s.residents.push(newResident());
     // A changing set of story residents each run
     const pool = s.residents.filter((r) => !r.case && !r.single);
+    if (!s.residents.some((r) => r.chairEligible)) {
+      const eligibleResident = pool.find((r) => r.mobility === 'wheelchair');
+      if (eligibleResident) eligibleResident.chairEligible = true;
+    }
     const storyCount = Math.floor(rnd(2, 7));
     const notes = [
       'Has started flinching when staff reach for her blanket.', 'Keeps a list of every nurse who "forgets" his insulin.',
@@ -114,6 +154,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     const sorted = [...s.residents].sort((a, b) => ['bedbound', 'wheelchair', 'walking'].indexOf(a.mobility) - ['bedbound', 'wheelchair', 'walking'].indexOf(b.mobility));
     sorted.forEach(assignBed);
     s.residents = s.residents.filter((r) => r.bed || (scene.remove(r.mesh), false));
+    ui.setResidents(s.residents.filter((r) => r.alive).length);
   }
 
   function dailyRosterChanges() {
@@ -134,6 +175,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
       s.residents.push(r); alive.push(r);
       s.overnight.push(`New admission: ${r.name}, Bed ${r.bed.id}.`);
     }
+    ui.setResidents(s.residents.filter((r) => r.alive).length);
   }
 
   // ---------- routines (care plan first; incidents and actions can disrupt) ----------
@@ -142,6 +184,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     return opts.length ? pick(opts) : null;
   }
   function placeInBed(r) {
+    if (r.chair) chairs?.remove(r);
     r.mode = 'bed'; r.roomId = r.bed.room;
     if (r.seat) { r.seat.occupant = null; r.seat = null; }
     pose(r.mesh, 'bed', r.bed);
@@ -218,16 +261,9 @@ export function createGame({ scene, map, ui, input, player, env }) {
   }
   // Route through the nurse station's counter gap rather than through the counters.
   function nurseGoto(n, to) {
-    const st = map.station;
-    const fromIn = map.inStation(n.pos), toIn = map.inStation(to);
-    let pts;
-    if (fromIn && toIn) pts = [to];
-    else {
-      pts = map.path(fromIn ? st.entryOut : n.pos, toIn ? st.entryOut : to);
-      if (toIn) pts.push(st.entryIn, to);
-      if (fromIn) pts.unshift(st.entryIn, st.entryOut);
-    }
-    n.path = pts;
+    const resident = s.residents.find((r) => r.alive && dist(r.pos, to) < 0.01);
+    n.path = localPath(map, n.pos, to, 0.3, resident?.chair?.collider) ?? [];
+    n.routeTarget = { ...to };
   }
   function nurseNextTask(n) {
     if (routine.npcNext(n)) return;
@@ -259,21 +295,41 @@ export function createGame({ scene, map, ui, input, player, env }) {
       n.mesh.visible = false;
       return;
     }
+    if (n.chairJob) return;
+    const careResident = n.bell?.res ?? n.routineJob?.entry?.r;
+    if (careResident?.alive) {
+      const target = careResident.mode === 'bed' ? bedSide(careResident.bed) : careResident.pos;
+      if (dist(n.pos, careResident.pos) <= 2.3) n.path = [];
+      else if (!n.routeTarget || dist(target, n.routeTarget) > 0.5) nurseGoto(n, target);
+    }
     if (n.escort && !n.path.length) return;
     if (n.path.length) {
       const t = n.path[0];
       const dx = t.x - n.pos.x, dz = t.z - n.pos.z;
       const d = Math.hypot(dx, dz);
       const step = (n.bell ? 1.6 : 1.15) * dt;
-      if (d <= step) { n.pos.x = t.x; n.pos.z = t.z; n.path.shift(); }
-      else { n.pos.x += (dx / d) * step; n.pos.z += (dz / d) * step; n.mesh.rotation.y = Math.atan2(dx, dz); }
+      const proposed = d <= step ? { ...t } : { x: n.pos.x + dx / d * step, z: n.pos.z + dz / d * step };
+      resolveCollisions(proposed, 0.3, map.colliders);
+      Object.assign(n.pos, proposed);
+      if (dist(n.pos, t) < 0.08) n.path.shift();
+      if (d > 1e-5) n.mesh.rotation.y = Math.atan2(dx, dz);
       n.mesh.position.set(n.pos.x, 0, n.pos.z);
       return;
     }
     if (n.bell) {
       const r = n.bell.res;
+      if (!r.alive || !s.bells.includes(n.bell)) {
+        n.bell = null; n.bellTimer = null;
+        return;
+      }
+      if (dist(n.pos, r.pos) > 2.3) {
+        n.bellTimer = null;
+        nurseGoto(n, r.mode === 'bed' ? bedSide(r.bed) : r.pos);
+        return;
+      }
       if (dt > 0 && !n.mesh.userData.forceAnim) {
-        n.mesh.rotation.y = Math.atan2(r.bed.x - n.pos.x, r.bed.z - n.pos.z);
+        const target = r.mode === 'bed' ? bedSide(r.bed) : r.pos;
+        n.mesh.rotation.y = Math.atan2(target.x - n.pos.x, target.z - n.pos.z);
         gesture(n.mesh, 'interact', 1.5);
         gesture(r.mesh, 'talk', 1.2);
       }
@@ -300,6 +356,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     return b;
   }
   function resolveBell(b, by) {
+    if (!b.res.alive || b.res.wellbeing <= 0 || !s.bells.includes(b)) return;
     s.bells = s.bells.filter((x) => x !== b);
     if (/toilet|wet|pad/i.test(b.need) && b.res.hygiene) { b.res.hygiene.body = false; b.res.hygiene.bedding = false; }
     b.res.wellbeing = clamp(b.res.wellbeing + (b.urgent ? 10 : 7), 0, 100);
@@ -326,11 +383,11 @@ export function createGame({ scene, map, ui, input, player, env }) {
     const expected = shift.staffTotal - 1;
     const present = s.onShift.filter((n) => !offFloor(n, s.now)).length;
     const factor = clamp(present / expected, 0.4, 1);
-    if (Math.random() < bellChance(s.difficulty, shift.id, factor, s.bells.length)) {
+    if (Math.random() < bellChance(s.difficulty, shift.id, factor, s.bells.length, s.nextMinute - s.randomBellLast)) {
       const cands = s.residents.filter((r) => r.alive && r.mode === 'bed' && !r.case && !(r.sedatedUntil > s.now) && !s.bells.some((b) => b.res === r));
       if (cands.length) {
         const bn = pick(BELL_NEEDS);
-        spawnBell(pick(cands), bn.need, bn.urgent && Math.random() < 0.6);
+        if (spawnBell(pick(cands), bn.need, bn.urgent && Math.random() < 0.6)) s.randomBellLast = s.nextMinute;
       }
     }
     for (const b of [...s.bells]) {
@@ -349,12 +406,12 @@ export function createGame({ scene, map, ui, input, player, env }) {
       // NPC nurses decide whether to answer — harmful staff mostly ignore bells
       if (!b.nurse && !b.forNurse && !b.caseBell) {
         for (const n of s.onShift) {
-          if (n.bell || n.escort || n.routineJob || offFloor(n, s.now)) continue;
+          if (n.bell || n.escort || n.routineJob || n.chairJob || offFloor(n, s.now)) continue;
           let p = { helpful: 0.09, overwhelmed: 0.05, harmful: 0.008 }[n.disposition];
           if (n.assigned.includes(b.res.bed.room)) p *= 2;
           if (n.supervised) p = Math.max(p, 0.04);
           if (n.disposition === 'harmful' && s.suspicion > 60) p *= 0.5;
-          if (Math.random() < p) { b.nurse = n; n.bell = b; nurseGoto(n, bedSide(b.res.bed)); break; }
+          if (Math.random() < p) { b.nurse = n; n.bell = b; nurseGoto(n, b.res.mode === 'bed' ? bedSide(b.res.bed) : b.res.pos); break; }
         }
       }
     }
@@ -364,9 +421,16 @@ export function createGame({ scene, map, ui, input, player, env }) {
   function minuteTick() {
     harm.minute(s.nextMinute);
     routine.minute(s.nextMinute);
+    resolveDeaths();
+    if (s.ended) return;
     colleague.minute(s.nextMinute);
     bellMinute();
+    resolveDeaths();
+    if (s.ended) return;
     case1.minute();
+    resolveDeaths();
+    if (s.ended) return;
+    chairs?.minute(s.nextMinute);
     for (const r of s.residents) {
       if (!r.alive) continue;
       // Neglect pressure in rooms covered by harmful staff
@@ -384,23 +448,20 @@ export function createGame({ scene, map, ui, input, player, env }) {
         if (waiting || Math.random() < neglect) { r.hygiene.body = true; r.hygiene.bedding = true; }
       }
       if (r.hygiene && dirty(r)) r.wellbeing -= 0.01;
-      if (r.wellbeing <= 0) {
-        removeResident(r);
-        s.stats.deaths++;
-        s.reputation -= 12;
-        s.stats.log.push(`${fmtTime(s.now)} — ${r.name} died. It may have been preventable.`);
-        ui.toast(`${r.name} has died.`, 5000);
-        case1.onDeath(r);
-      }
     }
+    resolveDeaths();
+    if (s.ended) return;
     if (s.reputation <= 0 && !s.inquiry) {
       s.inquiry = true;
       ui.toast('The Social Welfare Department has opened an inquiry into the home.', 6000);
     }
   }
   function tick(mins) {
+    if (s.ended) return;
+    resolveDeaths();
+    if (s.ended) return;
     s.now += mins;
-    while (s.now >= s.nextMinute) { minuteTick(); s.nextMinute++; }
+    while (s.now >= s.nextMinute && !s.ended) { minuteTick(); s.nextMinute++; }
   }
   game.advance = (mins) => tick(mins);
   game.emergency = () => s.bells.some((b) => b.urgent) || case1.emergency();
@@ -438,6 +499,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
   }
 
   function startShift() {
+    if (s.ended) return;
     const shift = SHIFTS[s.shiftIdx];
     s.overnight = [];
     if (shift.id === 'AM' && s.day > 1) dailyRosterChanges();
@@ -445,6 +507,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     s.shiftEnd = (s.day - 1) * 1440 + shift.end;
     s.now = s.shiftStart;
     s.nextMinute = s.now + 1;
+    s.randomBellLast = s.now;
     s.bells = [];
     s.waypoint = null;
     s.medicineRound = false;
@@ -454,6 +517,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
     routine.startShift();
     harm.nextShift();
     s.residents.forEach((r) => (r.lastSeen = null));
+    chairs?.reset();
     applyRoutine();
     s.nurses.forEach((n) => { n.mesh.visible = false; n.sick = false; n.bell = null; n.routineJob = null; n.path = []; n.supervisedToday = false; });
     s.nurses = s.nurses.filter((n) => !n.agency || (scene.remove(n.mesh), false));
@@ -494,6 +558,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
   }
 
   function endShift() {
+    if (s.ended) return;
     escort.cancel('silent');
     trolleys.park();
     holding = null;
@@ -553,8 +618,9 @@ export function createGame({ scene, map, ui, input, player, env }) {
       <div class="profile">
         <div class="p-head"><b>${esc(r.name)}</b> <span>${r.age} · Bed ${esc(r.bed?.id ?? '—')} · ${esc(map.roomById[r.bed?.room]?.name ?? '')}</span></div>
         ${bell ? `<div class="p-bell ${bell.urgent ? 'urgent' : ''}">${bell.urgent ? 'URGENT' : 'Call bell'}: ${esc(bell.need)} — ${Math.floor(s.now - bell.start)} min. Waypoint set.</div>` : ''}
-        <div class="p-row"><i>Wellbeing</i><span class="bar"><i style="width:${clamp(r.wellbeing, 0, 100)}%"></i></span></div>
+        <div class="p-row"><i>Wellbeing</i><span>${t('hud.health', { count: Math.ceil(r.wellbeing) })}</span><span class="bar"><i style="width:${clamp(r.wellbeing, 0, 100)}%"></i></span></div>
         <div class="p-row"><i>Mobility</i>${esc({ bedbound: 'Bed-bound', wheelchair: 'Wheelchair', walking: 'Walks (supervised)' }[r.mobility])}</div>
+        ${r.chairEligible ? `<div class="p-row story"><i>Care plan</i>${esc(t('chair.carePlan'))}</div>` : ''}
         <div class="p-row"><i>Personality</i>${esc(r.personality)}</div>
         <div class="p-row"><i>Routine</i>${esc(r.routine)}</div>
         <div class="p-row"><i>Support needs</i>${esc(r.needs.join(' · '))}</div>
@@ -573,6 +639,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
       label: care?.kind === 'tap' ? care.label : care ? `Care: ${care.label} (hold E at bedside)` : bell ? 'Care: answer call bell (hold E at bedside)' : 'Care: offer reassurance',
       cls: 'primary',
       fn: () => {
+        if (!s.running || s.paused || !r.alive || r.chair?.owner || dist(player, r.pos) > 2.3) return;
         ui.closePanel();
         if (care?.kind === 'tap') care.run();
         else if (!care && !bell) {
@@ -581,9 +648,9 @@ export function createGame({ scene, map, ui, input, player, env }) {
         }
       },
     }] : [];
-    ui.dialogue('Resident profile', profileHtml(r), [...extraOpts, ...careOptions, ...(near ? routine.options(r) : []), ...harm.options(r), { label: 'Close', fn: () => ui.closePanel() }]);
+    ui.dialogue('Resident profile', profileHtml(r), [...extraOpts, ...(near ? chairs.options(r) : []), ...careOptions, ...(near ? routine.options(r) : []), ...harm.options(r), { label: 'Close', fn: () => ui.closePanel() }]);
   };
-  game.residentOptions = (r) => [...routine.options(r), ...harm.options(r)];
+  game.residentOptions = (r) => [...chairs.options(r), ...routine.options(r), ...harm.options(r)];
   ui.onResident = () => {
     if (ui.panelOpen || !s.running || s.paused || holding || s.escort) return;
     const r = s.residents.filter((r) => r.alive && dist(player, r.pos) <= 2.3).sort((a, b) => dist(player, a.pos) - dist(player, b.pos))[0];
@@ -592,7 +659,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
   ui.onBannerTap = (id) => {
     const b = s.bells.find((x) => x.id === id);
     if (!b) return;
-    s.waypoint = { x: b.res.bed.x, z: b.res.bed.z, label: b.res.name, bell: b };
+    s.waypoint = { ref: b.res, ...b.res.pos, label: b.res.name, bell: b };
     game.openProfile(b.res);
   };
 
@@ -601,6 +668,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
   let holding = null;
   function interactables() {
     if (s.escort) return { d: 0, pos: player, kind: 'tap', label: 'Let go — abandon the escort', run: () => escort.cancel() };
+    if (s.pushingChair) return chairs.interactions()[0] ?? null;
     const list = [];
     for (const r of s.residents) {
       if (!r.alive || !r.mesh.visible) continue;
@@ -608,17 +676,19 @@ export function createGame({ scene, map, ui, input, player, env }) {
       const d = dist(player, p);
       if (d > 2.3) continue;
       const special = case1.residentAction(r);
-      if (special) { list.push({ ...special, d, pos: p }); continue; }
+      if (special) { list.push({ ...special, resident: r, d, pos: p }); continue; }
+      const chairActivity = chairs.activityInteraction(r);
+      if (chairActivity) { list.push({ ...chairActivity, resident: r, d, pos: p }); continue; }
       const bell = s.bells.find((b) => b.res === r);
       if (bell) {
         list.push({
-          d: d - 0.5, pos: p, kind: 'hold', dur: bell.urgent ? 2.2 : 1.6, minutes: bell.urgent ? 12 : 8,
+          resident: r, d: d - 0.5, pos: p, kind: 'hold', dur: bell.urgent ? 2.2 : 1.6, minutes: bell.urgent ? 12 : 8,
           label: `Answer call bell: ${bell.need.replace(' (waited 30+ min)', '')}`,
           run: () => { if (bell.nurse) { bell.nurse.bell = null; bell.nurse.path = []; } resolveBell(bell, 'player'); ui.toast(`You helped ${r.name}.`); },
         });
       } else if (dirty(r) && !r.case) {
         list.push({
-          d: d - 0.3, pos: p, kind: 'hold', dur: 2.4, minutes: 15,
+          resident: r, d: d - 0.3, pos: p, kind: 'hold', dur: 2.4, minutes: 15,
           label: `Wash & change ${r.name}${r.hygiene.bag ? ' (empty bag)' : ''}`,
           run: () => {
             r.hygiene.body = r.hygiene.bedding = r.hygiene.bag = false;
@@ -627,10 +697,10 @@ export function createGame({ scene, map, ui, input, player, env }) {
           },
         });
       } else if (routine.interaction(r)) {
-        list.push({ ...routine.interaction(r), d: d - 0.2, pos: p });
+        list.push({ ...routine.interaction(r), resident: r, d: d - 0.2, pos: p });
       } else {
         list.push({
-          d, pos: p, kind: 'tap', label: `Talk to ${r.name}`,
+          resident: r, d, pos: p, kind: 'tap', label: `Talk to ${r.name}`,
           run: () => {
             const chat = s.now - r.lastChat > 30;
             if (chat) { r.lastChat = s.now; r.wellbeing = Math.min(100, r.wellbeing + 3); }
@@ -689,13 +759,15 @@ export function createGame({ scene, map, ui, input, player, env }) {
         if (!cands.length) { ui.toast(`"Thanks, but I'm alright for now."`); return; }
         const r = pick(cands);
         const b = spawnBell(r, `Repositioning & pad change (asked by ${n.name})`, false, { forNurse: n });
-        if (b) { s.waypoint = { x: r.bed.x, z: r.bed.z, label: r.name, bell: b }; ui.toast({ key: 'dialogue.helpBed', vars: { bed: r.bed.id, name: r.name } }); }
+        if (b) { s.waypoint = { ref: r, ...r.pos, label: r.name, bell: b }; ui.toast({ key: 'dialogue.helpBed', vars: { bed: r.bed.id, name: r.name } }); }
       },
     }];
   };
 
   ui.onInteractDown = input.onInteractDown = () => {
     if (ui.panelOpen || !s.running || s.paused || performance.now() < (s.staggerUntil ?? 0) || !current) return;
+    if (current.resident && (!current.resident.alive || current.resident.chair?.owner ||
+      dist(player, current.resident.pos) > 2.3)) return;
     if (current.kind === 'tap') current.run();
     else holding = { it: current, t: 0 };
   };
@@ -709,7 +781,8 @@ export function createGame({ scene, map, ui, input, player, env }) {
     if (!s.running) return;
     const scale = s.paused ? 0 : ui.panelOpen ? (game.emergency() ? 1 : 0.25) : 1;
     const sdt = dt * scale;
-    tick(sdt);
+    tick(sdt * GAME_MINUTES_PER_SECOND);
+    if (!s.running) return;
     if (s.now >= s.shiftEnd) { endShift(); return; }
 
     if (s.escort && s.pushingTrolley) trolleys.park();
@@ -720,7 +793,7 @@ export function createGame({ scene, map, ui, input, player, env }) {
       if (mx || mz) {
         const sin = Math.sin(camYaw), cos = Math.cos(camYaw);
         const wx = mx * cos + mz * sin, wz = -mx * sin + mz * cos;
-        const speed = s.pushingTrolley ? 1.45 : s.mealTray ? 2.1 : input.fast ? 4.2 : 2.6;
+        const speed = s.pushingTrolley || s.pushingChair ? 1.45 : s.mealTray ? 2.1 : input.fast ? 4.2 : 2.6;
         const steps = Math.max(1, Math.ceil(speed * dt / 0.15));
         for (let i = 0; i < steps; i++) {
           const before = { x: player.x, z: player.z, heading: player.heading };
@@ -731,30 +804,39 @@ export function createGame({ scene, map, ui, input, player, env }) {
             Object.assign(player, before);
             break;
           }
+          if (s.pushingChair && !chairs.followPlayer()) {
+            Object.assign(player, before);
+            break;
+          }
         }
         player.moving = true;
-        if (s.pushingTrolley && !player.mesh.userData.forceAnim) gesture(player.mesh, 'push', 1);
+        if ((s.pushingTrolley || s.pushingChair) && !player.mesh.userData.forceAnim) gesture(player.mesh, 'push', 1);
       } else player.moving = false;
       resolveCollisions(player, 0.3, map.colliders);
     } else player.moving = false;
 
     // holding an action
-    if (holding) {
-      const tp = holding.it.pos;
+    if (holding && !s.paused && !ui.panelOpen) {
+      const tp = holding.it.resident?.pos ?? holding.it.pos;
       player.heading = Math.atan2(tp.x - player.x, tp.z - player.z);
       if (!player.mesh.userData.forceAnim) gesture(player.mesh, holding.it.dur >= 2 ? 'pickup' : 'interact', 1.3);
       const who = s.residents.find((r) => r.alive && (r.pos === tp || (r.bed && r.mode === 'bed' && r.bed.x === tp.x && r.bed.z === tp.z)));
       if (who && !who.mesh.userData.forceAnim) gesture(who.mesh, 'talk', 1.2);
       holding.t += realDt;
       ui.setHold(Math.min(1, holding.t / holding.it.dur), holding.it.label);
-      if (dist(player, holding.it.pos) > 2.8) { holding = null; ui.setHold(null); }
+      if (holding.it.resident && !holding.it.resident.alive || dist(player, tp) > 2.8) { holding = null; ui.setHold(null); }
       else if (holding.t >= holding.it.dur) {
         const it = holding.it;
         holding = null; ui.setHold(null);
-        if (it.beforeTime) { it.run(); tick(it.minutes); }
-        else { tick(it.minutes); it.run(); }
+        const valid = () => !s.ended && (!it.resident ||
+          it.resident.alive && it.resident.wellbeing > 0 && !it.resident.chair?.owner &&
+          dist(player, it.resident.pos) <= 2.8);
+        if (it.beforeTime) { if (valid()) it.run(); tick(it.minutes); }
+        else { tick(it.minutes); if (valid()) it.run(); }
+        resolveDeaths();
       }
     }
+    if (!s.running || s.ended) return;
 
     // residents: only nearby ones are fully simulated
     for (const r of s.residents) {
@@ -785,8 +867,11 @@ export function createGame({ scene, map, ui, input, player, env }) {
       }
     }
     const proom = map.roomAt(player.x, player.z);
+    for (const n of s.nurses) if (n.chairJob && !s.onShift.includes(n)) chairs.advanceStaff(n, 0);
     for (const n of s.onShift) {
       updateNurse(n, sdt);
+      if (s.ended) return;
+      if (n.chairJob) chairs.advanceStaff(n, sdt);
       const d = dist(player, n.pos);
       const arrived = !offFloor(n, s.now);
       n.mesh.visible = (arrived || n.departingUntil > performance.now()) && d < 26;
@@ -853,13 +938,16 @@ export function createGame({ scene, map, ui, input, player, env }) {
   // ---------- case wiring ----------
   const case1 = createCase1({ s, game, ui, map, scene, esc, fmtTime, clamp, dist, bedSide, spawnBell, makeRestraintProps, makeUrineBag, nurseGoto });
   const escort = createEscort({ s, map, ui, dist, rnd, bedSide, placeInBed, nurseGoto, resolveCollisions, gesture, pose, wanderAreas: WANDER_AREAS });
-  const harm = createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1, escort });
+  deathResolver = createDeathResolver({ s, ui, removeResident, onDeath: (r) => case1.onDeath(r), onGameOver: finishRun });
+  const harm = createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1, escort, onHealthChange: resolveDeaths });
   const trolleys = createTrolleys({ s, scene, map, ui, dist, resolveCollisions });
+  chairs = createChairs({ s, scene, map, ui, dist, resolveCollisions, harm, fmtTime });
   const routine = createRoutine({ s, ui, dist, trolleys, harm, nurseGoto, bedSide });
   const colleague = createColleague({ s, ui, dist, report: harm.report, advance: game.advance, evidenceFor: case1.evidenceFor, routine });
   const odour = createOdour(scene);
   game.escort = escort;
   game.harm = harm;
+  game.chairs = chairs;
   game.routine = routine;
   game.colleague = colleague;
   game.trolleys = trolleys;

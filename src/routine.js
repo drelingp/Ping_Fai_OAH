@@ -38,6 +38,7 @@ export function eligible(r, type) {
   return true;
 }
 export function missedEffect(r, type, now = 0) {
+  if (!r.alive) return;
   r.wellbeing = Math.max(0, r.wellbeing - TASKS[type].loss);
   if (type === 'pad') {
     r.hygiene ??= {};
@@ -83,6 +84,7 @@ export function createRoutine({ s, ui, dist, trolleys, harm, nurseGoto, bedSide 
     entry.nurse = null;
   }
   function complete(r, round, entry, actor = 'You') {
+    harm.checkHealth?.();
     if (entry.status !== 'pending' || !r.alive || !inWindow(round, s.now)) return false;
     if (actor === 'You' && !canDo(r, round, entry)) return false;
     entry.status = 'done';
@@ -161,11 +163,12 @@ export function createRoutine({ s, ui, dist, trolleys, harm, nurseGoto, bedSide 
         missedEffect(entry.r, round.type, time);
         s.stats.routine.missed++;
         write(round, entry, 'Uncompleted', 'missed', round.type === 'turn' ? 'missed; pressure-area risk' : 'window closed without care', time);
+        harm.checkHealth?.();
       }
     }
   }
   function npcNext(n) {
-    if (n.routineJob || n.bell || n.escort || n.suspended || n.offFloorUntil > s.now || n.breakUntil > s.now) return false;
+    if (n.routineJob || n.bell || n.chairJob || n.escort || n.suspended || n.offFloorUntil > s.now || n.breakUntil > s.now) return false;
     const job = s.rounds.filter((round) => inWindow(round, s.now)).flatMap((round) => round.entries
       .filter((entry) => entry.status === 'pending' && !entry.nurse && entry.r.alive && n.assigned.includes(entry.r.bed.room))
       .map((entry) => ({ round, entry })))[0];
@@ -177,6 +180,7 @@ export function createRoutine({ s, ui, dist, trolleys, harm, nurseGoto, bedSide 
       s.stats.routine.falseCharted++;
       n.falseCharts = (n.falseCharts ?? 0) + 1;
       write(round, entry, n.name, 'false-charted', `charted ${fmtTime(round.start)} by ${n.name} — not seen at bedside`);
+      harm.checkHealth?.();
       gesture(n.mesh, 'interact', 1);
       n.wait = 2;
       return true;

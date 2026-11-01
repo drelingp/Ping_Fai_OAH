@@ -18,7 +18,7 @@ export const STATION = {
   spots: [{ x: 15.0, z: 27.45 }, { x: 15.7, z: 29.05 }, { x: 15.1, z: 28.95 }],
 };
 
-export function decorate(scene, { colliders, beds, seats }) {
+export function decorate(scene, { colliders, beds, seats, chairParkingObstacles = [] }) {
   const items = [];
   const matCache = new Map();
   const std = (color, opts = {}) => {
@@ -38,6 +38,12 @@ export function decorate(scene, { colliders, beds, seats }) {
     g.position.set(x, y, z);
     g.rotation.y = f;
     items.push(g);
+    // Chair-only clearance metadata; keep existing foot-traffic collisions unchanged.
+    if (y === 0 && /^(?:furn:(?:chair|loungeChair)|hw:bench)/.test(key)) {
+      const bounds = new THREE.Box3().setFromObject(g);
+      g.userData.footprint = { minX: bounds.min.x, maxX: bounds.max.x, minZ: bounds.min.z, maxZ: bounds.max.z };
+      chairParkingObstacles.push(g.userData.footprint);
+    }
     if (solid) {
       const w = sz.x * g.scale.x, d = sz.z * g.scale.z;
       const swap = Math.abs(Math.sin(f)) > 0.5;
@@ -110,9 +116,13 @@ export function decorate(scene, { colliders, beds, seats }) {
 
   // ---------- seats & tables ----------
   for (const s of seats) {
-    if (s.room === 'garden') place('hw:bench', s.x - Math.sin(s.f) * 0.1, s.z - Math.cos(s.f) * 0.1, s.f, [1.3, 0.48, 0.55]);
-    else if (s.room === 'livA') place('furn:loungeChair', s.x - Math.sin(s.f) * 0.12, s.z - Math.cos(s.f) * 0.12, s.f, [0.72, 0.7, 0.66]);
-    else place('furn:chairCushion', s.x - Math.sin(s.f) * 0.08, s.z - Math.cos(s.f) * 0.08, s.f, [0.5, 0.95, 0.5]);
+    let furniture;
+    if (s.room === 'garden') furniture = place('hw:bench', s.x - Math.sin(s.f) * 0.1, s.z - Math.cos(s.f) * 0.1, s.f, [1.3, 0.48, 0.55]);
+    else if (s.room === 'livA') furniture = place('furn:loungeChair', s.x - Math.sin(s.f) * 0.12, s.z - Math.cos(s.f) * 0.12, s.f, [0.72, 0.7, 0.66]);
+    else furniture = place('furn:chairCushion', s.x - Math.sin(s.f) * 0.08, s.z - Math.cos(s.f) * 0.08, s.f, [0.5, 0.95, 0.5]);
+    if (furniture) {
+      s.footprint = furniture.userData.footprint;
+    }
   }
   for (const t of TABLES) {
     place('furn:table', t.x, t.z, PI / 2, [t.d, 0.75, t.w]);

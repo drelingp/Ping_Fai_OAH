@@ -15,7 +15,7 @@ const ACTIONS = [
 const strapGeo = new THREE.BoxGeometry(0.06, 0.04, 0.14);
 const strapMat = new THREE.MeshStandardMaterial({ color: 0xd8cfa6, roughness: 0.9 });
 
-export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1, escort = null }) {
+export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1, escort = null, onHealthChange = () => {} }) {
   // The actor turns to the resident and both react, so every act is visible in the scene.
   function perform(r, actorAnim, residentAnim) {
     const p = s.player;
@@ -43,8 +43,9 @@ export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1
     ].filter(Boolean);
   }
   function valid(r, id) {
-    if (!r.alive || !s.running || s.paused || dist(s.player, r.pos) > 2.3) return false;
-    if (id === 'restrain') return !r.playerRestrained && !s.escort;
+    if (!r.alive || r.wellbeing <= 0 || !s.running || s.paused || dist(s.player, r.pos) > 2.3) return false;
+    if (id === 'restrain') return !r.playerRestrained && !s.escort && !s.pushingChair &&
+      !s.pushingTrolley && !s.mealTray && !r.chair?.owner;
     if (id === 'silence') return s.bells.some((b) => b.res === r);
     if (id === 'withhold') return !(r.withholdUntil > s.now);
     if (id === 'sedate') return !(r.sedatedUntil > s.now) && (s.trolleys
@@ -109,6 +110,7 @@ export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1
     witnesses(r);
     ui.closePanel();
     ui.toast(`Your conduct: ${action.label}. Shift score −8; resident safety worsened.`, 5000);
+    onHealthChange();
     return true;
   }
   function act(r, action) {
@@ -249,5 +251,5 @@ export function createHarm({ s, ui, map, clamp, dist, fmtTime, placeInBed, case1
       updateRestraintProps(r.restraintVisual, s.now - r.restrainedAt);
     }
   }
-  return { options, status, minute, nextShift, remove, commit, report, frame, act, release };
+  return { options, status, minute, nextShift, remove, commit, report, frame, act, release, checkHealth: onHealthChange };
 }

@@ -102,18 +102,24 @@ export const SHIFTS = [
 // Random call-bell pacing: mean game-minutes between new bells on a fully staffed
 // day shift (night is ×1.5 slower) and the most random bells open at once.
 export const DIFFICULTY = {
-  easy: { label: 'Easy', bellEvery: 60, maxBells: 3 },
-  normal: { label: 'Normal', bellEvery: 35, maxBells: 4 },
-  hard: { label: 'Hard', bellEvery: 20, maxBells: 6 },
+  easy: { label: 'Easy', bellEvery: 180, maxBells: 3 },
+  normal: { label: 'Normal', bellEvery: 120, maxBells: 4 },
+  hard: { label: 'Hard', bellEvery: 90, maxBells: 6 },
 };
 export const DEFAULT_DIFFICULTY = 'normal';
+export const RANDOM_BELL_QUIET_MINUTES = 60;
+export const GAME_MINUTES_PER_SECOND = 2;
 
 // Per-minute chance of a new random call bell (0 when the cap is reached).
 // staffFactor < 1 when short-staffed, which makes bells more frequent.
-export function bellChance(difficulty, shiftId, staffFactor, openBells) {
+export function bellChance(difficulty, shiftId, staffFactor, openBells, minutesSinceRandomBell = Infinity) {
   const d = Object.hasOwn(DIFFICULTY, difficulty ?? '') ? DIFFICULTY[difficulty] : DIFFICULTY[DEFAULT_DIFFICULTY];
-  if (openBells >= d.maxBells) return 0;
-  return 1 / (d.bellEvery * (shiftId === 'NIGHT' ? 1.5 : 1) * staffFactor);
+  if (openBells >= d.maxBells || minutesSinceRandomBell < RANDOM_BELL_QUIET_MINUTES) return 0;
+  const quietMinutes = RANDOM_BELL_QUIET_MINUTES;
+  const mean = Math.max(quietMinutes, d.bellEvery *
+    (shiftId === 'NIGHT' ? 1.5 : 1) * Math.max(0.01, staffFactor));
+  // First eligible trial is minute 60, not 61: E[T] = 59 + 1/p.
+  return 1 / (mean - quietMinutes + 1);
 }
 
 export const NURSES = [

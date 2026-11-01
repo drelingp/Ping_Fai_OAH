@@ -10,11 +10,14 @@
     <canvas id="scene"></canvas>
 
     <div id="hud">
+      <div id="clock-stack">
       <div id="clockbox">
         <div id="clock">07:00</div>
         <div id="shift"></div>
         <div id="staff"></div>
         <div id="rep"></div>
+      </div>
+      <div id="residents"></div>
       </div>
       <div id="objective"></div>
       <div id="banners"></div>
@@ -70,7 +73,7 @@
           <button type="button" class="diff" role="radio" data-d="normal" aria-checked="true">Normal</button>
           <button type="button" class="diff" role="radio" data-d="hard" aria-checked="false">Hard</button>
           <div class="language" role="group" aria-label="Language"><button type="button" data-lang="en" data-no-i18n>EN</button><button type="button" data-lang="zh" data-no-i18n>繁</button></div>
-          <small class="diff-note" id="diff-note">A new call bell about every 35 min</small>
+          <small class="diff-note" id="diff-note">Random call bells average every 120 game min; at least 60 min apart</small>
         </div>
         <button id="start">Begin AM shift — 07:00</button>
         <p class="ctrl">Desktop: WASD + mouse drag · Mobile: left thumb to move, drag right side to look</p>

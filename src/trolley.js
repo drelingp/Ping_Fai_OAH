@@ -96,7 +96,7 @@ export function createTrolleys({ s, scene, map, ui, dist, resolveCollisions }) {
     ui.toast(`${t.label} ${home ? 'returned to its room' : 'parked'}.`);
   }
   function take(t) {
-    if (!s.running || s.paused || s.escort || s.pushingTrolley || s.mealTray || dist(s.player, t.pos) > 1.8) return false;
+    if (!s.running || s.paused || s.escort || s.pushingChair || s.pushingTrolley || s.mealTray || dist(s.player, t.pos) > 1.8) return false;
     map.colliders.splice(map.colliders.indexOf(t.collider), 1);
     s.pushingTrolley = t; s.medicineRound = t.kind === 'med';
     s.player.heading = Math.atan2(t.pos.x - s.player.x, t.pos.z - s.player.z);
