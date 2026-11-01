@@ -267,7 +267,8 @@ export function buildMap(scene) {
   leaves.castShadow = leaves.receiveShadow = true;
   scene.add(leaves);
 
-  const decor = decorate(scene, { colliders, beds, seats });
+  const chairParkingObstacles = [];
+  const decor = decorate(scene, { colliders, beds, seats, chairParkingObstacles });
 
   for (const [color, geoms] of buckets) {
     const mesh = new THREE.Mesh(mergeGeometries(geoms), new THREE.MeshStandardMaterial({ color, roughness: 0.75 }));
@@ -336,7 +337,7 @@ export function buildMap(scene) {
   const bounds = { minX: -1, maxX: 45, minZ: -1, maxZ: 69 };
   const inStation = (p) => p.x > STATION.inside.minX && p.x < STATION.inside.maxX && p.z > STATION.inside.minZ && p.z < STATION.inside.maxZ;
   const noWander = [STATION.outer];
-  return { colliders, wallMesh, beds, seats, roomAt, roomById, center, path, bounds, rooms: ROOMS, station: STATION, inStation, noWander, decor };
+  return { colliders, chairParkingObstacles, wallMesh, beds, seats, roomAt, roomById, center, path, bounds, rooms: ROOMS, station: STATION, inStation, noWander, decor };
 }
 
 export function resolveCollisions(pos, radius, colliders) {

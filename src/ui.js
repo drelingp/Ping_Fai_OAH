@@ -31,7 +31,7 @@ export function createUI() {
     onPause: null,
     onResident: null,
   };
-  const clock = $('#clock'), shiftEl = $('#shift'), staffEl = $('#staff'), repEl = $('#rep');
+  const clock = $('#clock'), shiftEl = $('#shift'), staffEl = $('#staff'), repEl = $('#rep'), residentsEl = $('#residents');
   const objective = $('#objective'), banners = $('#banners');
   const interact = $('#btn-interact'), interactLabel = $('#interact-label');
   const hold = $('#hold'), holdBar = $('#hold-bar'), holdLabel = $('#hold-label');
@@ -39,7 +39,7 @@ export function createUI() {
   const toastEl = $('#toast');
   const mini = $('#minimap');
   const bigMap = $('#bigmap'), bigCanvas = $('#bigmap-canvas'), bigList = $('#bigmap-list');
-  let lastHud = null, lastObjective = '', lastInteract = '', lastHold = [null];
+  let lastHud = null, lastResidentCount = null, lastObjective = '', lastInteract = '', lastHold = [null];
   let lastRows = [], lastBells = null, lastMapState = null;
 
   interact.addEventListener('pointerdown', (e) => { e.preventDefault(); ui.onInteractDown?.(); });
@@ -59,6 +59,10 @@ export function createUI() {
     shiftEl.textContent = messageText(shift);
     staffEl.textContent = messageText(staff);
     repEl.textContent = t('hud.reputation', { rep: Math.round(rep), susp: Math.round(susp) });
+  };
+  ui.setResidents = (count) => {
+    lastResidentCount = count;
+    residentsEl.textContent = t('hud.residents', { count });
   };
   ui.setObjective = (text) => { lastObjective = text; const rendered = translate(text); if (objective.textContent !== rendered) objective.textContent = rendered; };
   const taskRows = $('#task-rows'), taskCount = $('#task-count');
@@ -166,7 +170,10 @@ export function createUI() {
   let onCloseCb = null;
   let canClose = true;
   let refreshDialogue = null;
-  ui.openPanel = (html, { onClose = null, cls = '', closable = true } = {}) => {
+  let terminalPanel = false;
+  ui.openPanel = (html, { onClose = null, cls = '', closable = true, terminal = false } = {}) => {
+    if (terminalPanel) return null;
+    terminalPanel = terminal;
     refreshDialogue = null;
     canClose = closable;
     panelBody.innerHTML = html;
@@ -180,7 +187,7 @@ export function createUI() {
     return panelBody;
   };
   ui.closePanel = (force = false) => {
-    if (!ui.panelOpen || (!canClose && !force)) return;
+    if (terminalPanel || !ui.panelOpen || (!canClose && !force)) return;
     panel.className = '';
     ui.panelOpen = false;
     refreshDialogue = null;
@@ -198,14 +205,22 @@ export function createUI() {
         ${extra}
         <div class="dlg-opts">${options.map((o, i) => `<button class="opt ${o.cls || ''}" data-i="${i}" ${o.disabled ? 'disabled' : ''}>${esc(o.label)}</button>`).join('')}</div>
       </div>`, { cls: 'dialogue', ...panelOpts });
+    if (!body) return;
     if (typeof text === 'function') refreshDialogue = () => {
       const element = body.querySelector('.dlg-text');
       element.innerHTML = text();
       localize(element);
     };
-    body.querySelectorAll('.dlg-opts .opt[data-i]').forEach((b) => b.addEventListener('click', () => options[Number(b.dataset.i)].fn()));
+    body.querySelectorAll('.dlg-opts .opt[data-i]').forEach((b) => b.addEventListener('click', () => {
+      if (terminalPanel && !panelOpts.terminal) return;
+      options[Number(b.dataset.i)].fn();
+    }));
   };
-  ui.bind = (sel, fn) => panelBody.querySelectorAll(sel).forEach((el) => el.addEventListener('click', () => fn(el)));
+  ui.bind = (sel, fn) => {
+    if (!terminalPanel) panelBody.querySelectorAll(sel).forEach((el) => el.addEventListener('click', () => {
+      if (!terminalPanel) fn(el);
+    }));
+  };
 
   ui.toggleMap = (force) => {
     ui.mapExpanded = force ?? !ui.mapExpanded;
@@ -305,6 +320,7 @@ export function createUI() {
   onLangChange(() => {
     lastTasks = ''; listTimer = 0;
     if (lastHud) ui.setHud(lastHud);
+    if (lastResidentCount !== null) ui.setResidents(lastResidentCount);
     ui.setObjective(lastObjective);
     ui.setInteract(lastInteract);
     ui.setHold(...lastHold);

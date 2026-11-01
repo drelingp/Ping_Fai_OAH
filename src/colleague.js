@@ -45,7 +45,7 @@ export function createColleague({ s, ui, dist, report, advance, evidenceFor = ()
     }
   }
   const available = (n) => s.running && !s.paused && !s.escort && !offFloor(n, s.now) && s.onShift.includes(n) &&
-    dist(s.player, n.pos) <= 2.3 && !(n.colleagueUntil > s.now) && !(s.colleagueCooldown > s.now);
+    !n.chairJob && dist(s.player, n.pos) <= 2.3 && !(n.colleagueUntil > s.now) && !(s.colleagueCooldown > s.now);
   const log = (text) => s.stats.log.push(`${fmtTime(s.now)} — Colleague conduct: ${text}`);
   function rewardHelp(n) {
     const bonus = awardPositive(s, n);
@@ -98,6 +98,7 @@ export function createColleague({ s, ui, dist, report, advance, evidenceFor = ()
       s.staggerUntil = performance.now() + outcome.staggerSeconds * 1000;
       s.reputation = Math.max(0, s.reputation - 3);
       advance(outcome.lostMinutes);
+      if (s.ended) return true;
     } else if (outcome.reaction === 'walkOff') {
       gesture(n.mesh, 'talk', 1.5); n.path = []; n.mesh.visible = false;
       n.departingUntil = performance.now() + 1600;

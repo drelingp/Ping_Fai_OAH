@@ -10,7 +10,7 @@ export function createEscort({ s, map, ui, dist, rnd, bedSide, placeInBed, nurse
 
   function availableHelper(near) {
     return s.onShift
-      .filter((n) => (!n.arriveAt || s.now >= n.arriveAt) && !n.bell && !n.routineJob && !n.escort && !n.suspended && !n.refusesHelp && !(n.offFloorUntil > s.now) && !(n.breakUntil > s.now))
+      .filter((n) => (!n.arriveAt || s.now >= n.arriveAt) && !n.bell && !n.routineJob && !n.chairJob && !n.escort && !n.suspended && !n.refusesHelp && !(n.offFloorUntil > s.now) && !(n.breakUntil > s.now))
       .map((n) => ({ n, d: dist(n.pos, near) }))
       .filter((x) => x.d < 40)
       .sort((a, b) => a.d - b.d)[0]?.n ?? null;
@@ -30,7 +30,8 @@ export function createEscort({ s, map, ui, dist, rnd, bedSide, placeInBed, nurse
   }
 
   function start(r, onArrive) {
-    if (s.escort || !r.alive || !r.bed) return false;
+    if (s.escort || s.pushingChair || s.pushingTrolley || s.mealTray || r.chair?.owner ||
+      !s.running || s.paused || !r.alive || !r.bed) return false;
     const e = { r, onArrive, helper: null, solo: true, phase: 'gather', gatherT: 0, path: [], pause: 0, resist: 0, trail: [], stuck: 0, fromMode: r.mode, accT: 0 };
     s.escort = e;
     if (r.seat) { r.seat.occupant = null; r.seat = null; }

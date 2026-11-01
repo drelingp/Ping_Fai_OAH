@@ -258,6 +258,7 @@ export function createCase1(ctx) {
     if (at('confronted') && !c.evidence.records) opts.push({
       label: "Pull Mr. Chan's restraint & ADL charts (10 min)", cls: 'primary', fn: () => {
         game.advance(10);
+        if (s.ended) return;
         c.evidence.records = true;
         const k = ko();
         const seen = k && s.onShift.includes(k) && dist(k.pos, s.player) < 8;
@@ -281,6 +282,7 @@ export function createCase1(ctx) {
     if (at('confronted') && !c.evidence.cctv) opts.push({
       label: 'Review corridor CCTV for Bedroom 4 (15 min)', fn: () => {
         game.advance(15);
+        if (s.ended) return;
         c.evidence.cctv = true;
         s.suspicion = clamp(s.suspicion + 5, 0, 100);
         ui.dialogue('CCTV — Camera 3 (Living Area A → Bedroom 4)', `
