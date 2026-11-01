@@ -1,8 +1,14 @@
 import { ROOMS } from './data.js';
+import { translate, localize, onLangChange, lang, t, bindLanguageButtons, CJK_FONT } from './i18n.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 export { esc };
+const messageText = (message) => {
+  if (!message || typeof message !== 'object') return translate(message ?? '');
+  const vars = Object.fromEntries(Object.entries(message.vars ?? {}).map(([key, value]) => [key, typeof value === 'string' ? translate(value) : value]));
+  return t(message.key, vars);
+};
 
 export function fmtTime(abs) {
   const m = ((Math.floor(abs) % 1440) + 1440) % 1440;
@@ -33,6 +39,8 @@ export function createUI() {
   const toastEl = $('#toast');
   const mini = $('#minimap');
   const bigMap = $('#bigmap'), bigCanvas = $('#bigmap-canvas'), bigList = $('#bigmap-list');
+  let lastHud = null, lastObjective = '', lastInteract = '', lastHold = [null];
+  let lastRows = [], lastBells = null, lastMapState = null;
 
   interact.addEventListener('pointerdown', (e) => { e.preventDefault(); ui.onInteractDown?.(); });
   interact.addEventListener('pointerup', () => ui.onInteractUp?.());
@@ -46,12 +54,28 @@ export function createUI() {
   $('#panel-close').addEventListener('click', () => ui.closePanel());
 
   ui.setHud = ({ time, shift, staff, rep, susp }) => {
+    lastHud = { time, shift, staff, rep, susp };
     clock.textContent = time;
-    shiftEl.textContent = shift;
-    staffEl.textContent = staff;
-    repEl.textContent = `Reputation ${Math.round(rep)} · Staff suspicion ${Math.round(susp)}`;
+    shiftEl.textContent = messageText(shift);
+    staffEl.textContent = messageText(staff);
+    repEl.textContent = t('hud.reputation', { rep: Math.round(rep), susp: Math.round(susp) });
   };
-  ui.setObjective = (t) => { if (objective.textContent !== t) objective.textContent = t; };
+  ui.setObjective = (text) => { lastObjective = text; const rendered = translate(text); if (objective.textContent !== rendered) objective.textContent = rendered; };
+  const taskRows = $('#task-rows'), taskCount = $('#task-count');
+  let lastTasks = '';
+  taskRows.addEventListener('click', (e) => {
+    const row = e.target.closest('[data-round]');
+    if (row) ui.onTaskTap?.(row.dataset.round);
+  });
+  ui.renderTasks = (rows) => {
+    lastRows = rows;
+    const key = lang + JSON.stringify(rows);
+    if (key === lastTasks) return;
+    lastTasks = key;
+    taskCount.textContent = rows.length;
+    taskRows.innerHTML = rows.map((row) => `<button data-round="${esc(row.id)}"><b>${esc(row.label)}</b><span>${row.done}/${row.total}${row.unsafe ? ' · ' + row.unsafe + ' unsafe' : ''}</span><small>${esc(row.due)}</small></button>`).join('') || '<small>No active rounds. Your allocation: Single Rooms.</small>';
+    localize(taskRows);
+  };
 
   // Boxes are kept and patched in place so nothing re-animates every game minute.
   // A box blinks a few times only when it first appears or turns urgent.
@@ -69,6 +93,7 @@ export function createUI() {
     if (el) ui.onBannerTap?.(Number(el.dataset.id));
   });
   ui.renderBanners = (bells, now) => {
+    lastBells = [bells, now];
     const limit = compactQuery.matches ? 2 : 3;
     const sorted = [...bells].sort((a, b) => (b.urgent - a.urgent) || (a.start - b.start)).slice(0, limit);
     const keep = new Set(sorted.map((b) => b.id));
@@ -87,12 +112,12 @@ export function createUI() {
       const { el } = rec;
       if (banners.children[i] !== el) banners.insertBefore(el, banners.children[i] ?? null);
       const mins = Math.floor(now - b.start);
-      const main = `${b.res.name}${b.res.bed?.id ? ' · Bed ' + b.res.bed.id : ''}`;
-      const sub = `${b.need} · ${mins} min${b.nurse ? ' · staff going' : ''}`;
-      const age = `${mins}m${b.nurse ? ' · staff' : ''}`;
+      const main = translate(`${b.res.name}${b.res.bed?.id ? ' · Bed ' + b.res.bed.id : ''}`);
+      const sub = translate(`${b.need} · ${mins} min${b.nurse ? ' · staff going' : ''}`);
+      const age = t('bell.age', { count: mins }) + (b.nurse ? translate(' · staff') : '');
+      el.children[0].textContent = translate(b.urgent ? 'URGENT' : 'Call bell');
       if (rec.urgent !== b.urgent) {
         el.classList.toggle('urgent', b.urgent);
-        el.children[0].textContent = b.urgent ? 'URGENT' : 'Call bell';
         if (fresh || b.urgent) blink(el);
         rec.urgent = b.urgent;
       }
@@ -103,24 +128,36 @@ export function createUI() {
     const extra = bells.length - sorted.length;
     if (extra > 0) {
       if (!moreEl) { moreEl = document.createElement('div'); moreEl.className = 'banner-more'; }
-      const t = `+${extra} more call bell${extra > 1 ? 's' : ''}`;
-      if (moreEl.textContent !== t) moreEl.textContent = t;
+      const text = t('bell.more', { count: extra });
+      if (moreEl.textContent !== text) moreEl.textContent = text;
       if (banners.lastElementChild !== moreEl) banners.appendChild(moreEl);
     } else moreEl?.remove();
   };
 
   ui.setInteract = (label) => {
+    lastInteract = label;
     interact.classList.toggle('disabled', !label);
-    interactLabel.textContent = label || '';
+    interactLabel.textContent = translate(label || '');
   };
   ui.setHold = (p, label) => {
+    lastHold = [p, label];
     hold.classList.toggle('show', p !== null);
-    if (p !== null) { holdBar.style.width = `${Math.round(p * 100)}%`; holdLabel.textContent = label; }
+    if (p !== null) { holdBar.style.width = `${Math.round(p * 100)}%`; holdLabel.textContent = translate(label); }
   };
 
   let toastTimer = 0;
+  let toastMessage = null;
+  const renderToast = () => {
+    if (toastMessage && typeof toastMessage === 'object') {
+      toastEl.textContent = messageText(toastMessage);
+    } else {
+      toastEl.textContent = toastMessage ?? '';
+      localize(toastEl);
+    }
+  };
   ui.toast = (msg, ms = 3200) => {
-    toastEl.textContent = msg;
+    toastMessage = msg;
+    renderToast();
     toastEl.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
@@ -128,9 +165,13 @@ export function createUI() {
 
   let onCloseCb = null;
   let canClose = true;
+  let refreshDialogue = null;
   ui.openPanel = (html, { onClose = null, cls = '', closable = true } = {}) => {
+    refreshDialogue = null;
     canClose = closable;
     panelBody.innerHTML = html;
+    localize(panelBody);
+    bindLanguageButtons(panelBody);
     panel.className = 'show ' + cls;
     $('#panel-close').style.display = closable ? '' : 'none';
     ui.panelOpen = true;
@@ -142,20 +183,27 @@ export function createUI() {
     if (!ui.panelOpen || (!canClose && !force)) return;
     panel.className = '';
     ui.panelOpen = false;
+    refreshDialogue = null;
     const cb = onCloseCb;
     onCloseCb = null;
     cb?.();
   };
   // Dialogue: options = [{label, fn, cls}]
   ui.dialogue = (speaker, text, options = [], extra = '', panelOpts = {}) => {
+    const content = typeof text === 'function' ? text() : text;
     const body = ui.openPanel(`
       <div class="dlg">
         <div class="dlg-speaker">${esc(speaker)}</div>
-        <div class="dlg-text">${text}</div>
+        <div class="dlg-text">${content}</div>
         ${extra}
         <div class="dlg-opts">${options.map((o, i) => `<button class="opt ${o.cls || ''}" data-i="${i}" ${o.disabled ? 'disabled' : ''}>${esc(o.label)}</button>`).join('')}</div>
       </div>`, { cls: 'dialogue', ...panelOpts });
-    body.querySelectorAll('.opt').forEach((b) => b.addEventListener('click', () => options[Number(b.dataset.i)].fn()));
+    if (typeof text === 'function') refreshDialogue = () => {
+      const element = body.querySelector('.dlg-text');
+      element.innerHTML = text();
+      localize(element);
+    };
+    body.querySelectorAll('.dlg-opts .opt[data-i]').forEach((b) => b.addEventListener('click', () => options[Number(b.dataset.i)].fn()));
   };
   ui.bind = (sel, fn) => panelBody.querySelectorAll(sel).forEach((el) => el.addEventListener('click', () => fn(el)));
 
@@ -194,9 +242,9 @@ export function createUI() {
       g.strokeRect(x, y, r.w * sc, r.d * sc);
       if (expanded && r.name) {
         g.fillStyle = 'rgba(255,255,255,.75)';
-        g.font = `${Math.max(9, sc * 0.9)}px system-ui`;
+        g.font = `${Math.max(9, sc * 0.9)}px ${CJK_FONT}`;
         g.textAlign = 'center';
-        g.fillText(r.name.replace(' (out of service)', '').replace(' (locked)', ''), x + (r.w * sc) / 2, y + (r.d * sc) / 2 + 4);
+        g.fillText(translate(r.name.replace(' (out of service)', '').replace(' (locked)', '')), x + (r.w * sc) / 2, y + (r.d * sc) / 2 + 4, Math.max(1, r.w * sc - 4));
       }
     }
     // residents at last known location
@@ -236,6 +284,7 @@ export function createUI() {
 
   let listTimer = 0;
   ui.drawMaps = (s) => {
+    lastMapState = s;
     drawMap(mini, s, false);
     if (ui.mapExpanded) {
       drawMap(bigCanvas, s, true);
@@ -248,9 +297,22 @@ export function createUI() {
           const when = ls ? `${fmtTime(ls.t)} (${Math.floor(s.now - ls.t)} min ago)` : '';
           return `<div class="ll ${r.case ? 'story' : ''}"><b>${esc(r.name)}</b><span>${esc(where)} ${when}</span></div>`;
         }).join('');
+        localize(bigList);
       }
     }
   };
 
+  onLangChange(() => {
+    lastTasks = ''; listTimer = 0;
+    if (lastHud) ui.setHud(lastHud);
+    ui.setObjective(lastObjective);
+    ui.setInteract(lastInteract);
+    ui.setHold(...lastHold);
+    ui.renderTasks(lastRows);
+    if (lastBells) ui.renderBanners(...lastBells);
+    if (lastMapState) ui.drawMaps(lastMapState);
+    renderToast();
+    refreshDialogue?.();
+  });
   return ui;
 }

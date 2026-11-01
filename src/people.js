@@ -72,15 +72,85 @@ export function makePlayer() {
   return g || makePerson({ body: SCRUB.top, hair: 0x15120f, skin: SKIN[2] });
 }
 
-// Visual props for the restrained resident (Case 1)
-export function makeRestraintProps() {
+// Bed props stay in world space; cuffs track the rig without moving its bones.
+export function makeRestraintProps(bed, person) {
   const g = new THREE.Group();
-  const s1 = new THREE.Mesh(geo.strap, mat(0xd8cfa6));
-  const s2 = s1.clone();
-  s1.position.set(-0.42, 0.72, 0);
-  s2.position.set(0.42, 0.72, 0);
-  g.add(s1, s2);
+  g.name = 'bed-restraints';
+  if (!bed) return g;
+  g.position.set(bed.x, 0, bed.z);
+  const padded = new THREE.MeshStandardMaterial({ color: 0xe0d4af, roughness: 0.95 });
+  const webbing = new THREE.MeshStandardMaterial({ color: 0xb9a478, roughness: 0.9 });
+  const metal = new THREE.MeshStandardMaterial({ color: 0xc5ccd2, roughness: 0.35, metalness: 0.55 });
+  const marks = new THREE.MeshStandardMaterial({ color: 0xd59683, roughness: 1 });
+  const box = (w, h, d, x, y, z, material, name) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+    m.name = name;
+    m.position.set(x, y, z);
+    m.castShadow = m.receiveShadow = true;
+    g.add(m);
+    return m;
+  };
+  for (const side of [-1, 1]) {
+    for (const y of [0.87, 1.12]) box(0.045, 0.045, 1.72, side * 0.5, y, 0, metal, 'raised-rail');
+    for (const z of [-0.78, -0.26, 0.26, 0.78]) box(0.035, 0.28, 0.035, side * 0.5, 0.99, z, metal, 'rail-upright');
+  }
+  box(1.0, 0.045, 0.17, 0, 0.89, -bed.headDir * 0.4, webbing, 'waist-belt');
+  box(0.1, 0.055, 0.2, 0.25, 0.92, -bed.headDir * 0.4, metal, 'belt-buckle');
+  const cuffs = [];
+  for (const [limb, z, width] of [['hand', -0.1, 0.31], ['foot', -0.68, 0.14]]) {
+    for (const [side, suffix] of [[-1, 'l'], [1, 'r']]) {
+      const cuff = new THREE.Mesh(new THREE.TorusGeometry(0.065, 0.025, 6, 12), padded);
+      cuff.name = `${limb === 'hand' ? 'wrist' : 'ankle'}-cuff`;
+      g.add(cuff);
+      const mark = new THREE.Mesh(new THREE.TorusGeometry(0.058, 0.012, 5, 12), marks);
+      mark.name = 'pressure-mark';
+      g.add(mark);
+      const strap = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1, 6), webbing);
+      strap.name = 'frame-tie';
+      g.add(strap);
+      cuffs.push({
+        cuff, mark, strap, bone: person?.userData.anim?.inner.getObjectByName(`${limb}_${suffix}`),
+        fallback: new THREE.Vector3(side * width, 0.82, bed.headDir * z),
+        anchor: new THREE.Vector3(side * 0.49, 0.48, bed.headDir * z), side,
+      });
+    }
+  }
+  g.userData.cuffs = cuffs;
+  g.userData.markMaterial = marks;
+  g.userData.railsRaised = true;
+  g.addEventListener('removed', () => {
+    g.traverse((m) => { if (m.isMesh) m.geometry.dispose(); });
+    for (const material of [padded, webbing, metal, marks]) material.dispose();
+    g.userData.railsRaised = false;
+  });
+  updateRestraintProps(g, 0);
   return g;
+}
+
+const restraintPoint = new THREE.Vector3();
+const restraintDelta = new THREE.Vector3();
+const UP = new THREE.Vector3(0, 1, 0);
+const MARK_LIGHT = new THREE.Color(0xd59683), MARK_DARK = new THREE.Color(0x9e3838);
+export function updateRestraintProps(g, minutes) {
+  if (!g?.userData.cuffs) return;
+  g.userData.markMaterial.color.copy(MARK_LIGHT).lerp(MARK_DARK, Math.min(1, Math.max(0, minutes) / 180));
+  g.updateMatrixWorld(true);
+  for (const { cuff, mark, strap, bone, fallback, anchor, side } of g.userData.cuffs) {
+    if (bone) {
+      bone.updateWorldMatrix(true, false);
+      g.worldToLocal(bone.getWorldPosition(restraintPoint));
+    } else restraintPoint.copy(fallback);
+    // The blanket hides low-hanging limbs in the idle clip; keep cuffs on its surface.
+    restraintPoint.y = Math.max(0.77, restraintPoint.y);
+    anchor.x = Math.sign(restraintPoint.x || side) * 0.49;
+    cuff.position.copy(restraintPoint);
+    mark.position.copy(restraintPoint);
+    mark.position.z += side * 0.065;
+    restraintDelta.subVectors(anchor, restraintPoint);
+    strap.position.copy(restraintPoint).add(anchor).multiplyScalar(0.5);
+    strap.scale.y = restraintDelta.length();
+    strap.quaternion.setFromUnitVectors(UP, restraintDelta.normalize());
+  }
 }
 export function makeUrineBag() {
   const m = new THREE.Mesh(geo.bag, mat(0xc9a63a));

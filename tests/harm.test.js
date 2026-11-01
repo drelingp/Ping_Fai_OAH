@@ -114,6 +114,20 @@ test('taking a medicine round allows sedation away from the station', () => {
   assert.equal(f.r.sedatedUntil, 660);
 });
 
+test('physical trolleys require actively pushing medicine, overriding legacy flags and station access', () => {
+  const f = fixture();
+  f.s.trolleys = [];
+  f.s.medicineRound = true;
+  const option = () => f.harm.options(f.r).find((o) => o.label.includes('Over-sedate'));
+  assert.equal(option().disabled, true);
+  f.s.pushingTrolley = { kind: 'vitals' };
+  assert.equal(option().disabled, true);
+  f.s.pushingTrolley = { kind: 'med' };
+  assert.equal(option().disabled, false);
+  random(0.99, () => option().fn());
+  assert.equal(f.s.stats.harm, 1);
+});
+
 test('remote, dead and paused residents cannot be harmed', () => {
   for (const mutate of [
     (f) => { f.s.player.x = 20; },
